@@ -69,6 +69,9 @@ docs/failure-modes.md  every way the code can fail, written before the code
 extension/        the demo extension that shows this repo working in Firefox
 scripts/build-ext.mjs  bundles extension/ into dist-ext/ with esbuild
 e2e/run.mjs       the Firefox E2E test; writes artifacts/e2e-<date>.json
+e2e/ollama.mjs    one real task with a local Ollama model; writes artifacts/e2e-ollama-<date>.json
+src/prompt.ts     every word the planner reads from foxloop
+extension/mind.js the only demo file that talks to foxmind
 ```
 
 ## Commands
@@ -79,6 +82,7 @@ pnpm ci:local   # lint + typecheck + test + build; run before every hand-off
 pnpm build:ext  # extension/ -> dist-ext/; fails if the manifest and package.json versions differ
 pnpm lint:ext   # web-ext lint on dist-ext/ (part of ci:local)
 pnpm e2e        # Firefox E2E; set FIREFOX if Firefox is not in the usual place
+pnpm e2e:ollama # one real task with Ollama and qwen3:0.6b; skips when Ollama is down
 ```
 
 ## Testing
