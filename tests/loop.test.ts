@@ -210,3 +210,36 @@ describe("P3: check evidence is data", () => {
     }
   });
 });
+
+describe("L14: only the newest tool result's check counts", () => {
+  const passed = { ok: true, checks: [{ part: "page", ok: true, evidence: "looks fine" }] };
+  const twoTools = (later: LoopTool["run"]) => {
+    const look: LoopTool = { ...noteTool(() => ({ ok: true, summary: "looked", check: passed })).tool, name: "look" };
+    const pay: LoopTool = { ...noteTool().tool, name: "pay_click", run: later };
+    return [look, pay];
+  };
+  const steps = (second: unknown) => [{ calls: [{ name: "look", args: { text: "a" } }] }, second, finish, finish] as Parameters<typeof scriptedMind>[0];
+
+  it("a later failed result clears the old check", async () => {
+    const tools = twoTools(async () => ({ ok: false, summary: "payment failed" }));
+    const { loop } = await setup(tools, steps({ calls: [{ name: "pay_click", args: { text: "a" } }] }));
+    const events = await collect(loop.run("Pay."));
+    expect(ofType(events, "check")[0]?.ok).toBe(false);
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "check-failed" });
+  });
+
+  it("a later thrown tool, unknown tool or bad arguments clear the old check", async () => {
+    const seconds = [
+      [async () => Promise.reject(new Error("card declined")), { calls: [{ name: "pay_click", args: { text: "a" } }] }],
+      [async () => ({ ok: true, summary: "x" }), { calls: [{ name: "nope", args: {} }] }],
+      [async () => ({ ok: true, summary: "x" }), { calls: [{ name: "pay_click", args: { text: 1 } }] }],
+      [async () => ({ ok: true, summary: "paid, no check" }), { calls: [{ name: "pay_click", args: { text: "a" } }] }],
+    ] as const;
+    for (const [run, second] of seconds) {
+      const { loop } = await setup(twoTools(run), steps(second));
+      const events = await collect(loop.run("Pay."));
+      expect(last(events)).toMatchObject({ type: "blocked", reason: "check-failed" });
+    }
+  });
+});
+
