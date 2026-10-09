@@ -33,6 +33,9 @@ const LOAD_WAIT_MS = 15_000;
 const OPS = ["type", "select", "check", "uncheck", "date", "scroll"] as const;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/** The page or the control is not the one the gate judged and the human approved. */
+const stale = (why: string): ToolOutput => ({ ok: false, summary: `stale: ${why} after the call was checked. Nothing ran. Call snapshot, then ask again.` });
+
 const hostOf = (url: string | undefined): string => {
   let parsed: URL;
   try {
@@ -64,7 +67,17 @@ function pageText(page: Snapshot): string {
 export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   const paw: PawLike = options.paw ?? foxpaw;
   const api = () => options.browser ?? (globalThis as unknown as { browser: ScriptingApi & { tabs: TabsLike } }).browser;
-  let last: { tabId: number; page: Snapshot } | undefined;
+  /** The newest snapshot. `generation` grows with each read, so an old approval can tell. */
+  let last: { tabId: number; page: Snapshot; generation: number } | undefined;
+  let generation = 0;
+  /** One call at a time per tab: a read cannot slip in between another call's steps. */
+  const queues = new Map<number, Promise<unknown>>();
+  const serial = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const tabId = await options.tabId();
+    const next = (queues.get(tabId) ?? Promise.resolve()).then(fn, fn);
+    queues.set(tabId, next.catch(() => undefined));
+    return next;
+  };
   const tabDomain = async () => {
     const tab = await api().tabs.get(await options.tabId());
     if (!tab.url?.startsWith("http")) throw new Error("the tab shows no web page");
@@ -77,8 +90,9 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     return host === ctx.domain ? undefined : { ok: false, summary: `The tab is now on ${host}, not on ${ctx.domain} that the gate checked. Nothing ran.` };
   };
   const read = async (tabId: number) => {
-    last = { tabId, page: await paw.snapshot(tabId, api()) };
-    return last.page;
+    const page = await paw.snapshot(tabId, api());
+    last = { tabId, page, generation: ++generation };
+    return page;
   };
   /** The control the args name, from a snapshot of the current tab. Throws when there is none. */
   const named = async (args: Record<string, unknown>) => {
@@ -89,13 +103,23 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     if (!found) throw new Error(`No control has the id "${String(args.controlId)}" in the last snapshot.`);
     return { control: found, url: page.url };
   };
+  /** Pins the control the model named, so the gate judges and the human approves this exact control. */
+  const pin = async (args: Record<string, unknown>) => {
+    const { control: c, url } = await named(args);
+    const target: Target = { tabId: last?.tabId ?? -1, generation: last?.generation ?? -1, id: c.id, frameId: c.frameId, node: c.node, guard: c.guard, role: c.role, label: c.label, submit: c.submit, url };
+    return { ...args, target };
+  };
   const operate = async (args: Record<string, unknown>, request: ActRequest, signal: AbortSignal): Promise<ToolOutput> => {
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const tabId = await options.tabId();
-    const page = last?.page;
-    const found = await named(args).catch((error: Error) => error.message);
-    if (typeof found === "string" || !page) return { ok: false, summary: `${found} Call snapshot to read the page.` };
-    const { control } = found;
+    const target = args.target as Target | undefined;
+    if (!target) return { ok: false, summary: "The call has no pinned control. Nothing ran." };
+    if (!last || last.tabId !== tabId || last.generation !== target.generation) return stale("the page was read again");
+    const page = last.page;
+    const control = page.controls.find((c) => c.id === target.id);
+    if (!control || control.guard !== target.guard || control.label !== target.label || control.role !== target.role || control.node !== target.node || control.frameId !== target.frameId) {
+      return stale("the control changed");
+    }
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const result = await paw.act(tabId, control, request, page, api());
     if (!result.ok) {
@@ -116,12 +140,12 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: {} },
       scope: "read",
       domain: tabDomain,
-      run: async (_args, ctx: ToolContext) => {
+      run: (_args, ctx: ToolContext) => serial(async () => {
         const refused = await moved(ctx);
         if (refused) return refused;
         const page = await read(await options.tabId());
         return { ok: true, summary: `Read the page: ${page.controls.length} controls${page.more ? "; the page can scroll" : ""}.`, untrusted: pageText(page) };
-      },
+      }),
     },
     {
       name: "act",
@@ -129,11 +153,12 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: { ...control, op: { type: "string", enum: [...OPS] }, value: { type: "string", maxLength: 2000 } }, required: ["controlId", "op"] },
       scope: "fill",
       domain: tabDomain,
-      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }, ctx.signal),
-      describe: async (args) => {
-        const { control: c, url } = await named(args);
+      prepare: pin,
+      run: (args, ctx: ToolContext) => serial(async () => (await moved(ctx)) ?? operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }, ctx.signal)),
+      describe: (args) => {
+        const t = args.target as Target;
         const value = typeof args.value === "string" ? ` "${args.value}"` : "";
-        return `${String(args.op)}${value} ${args.op === "type" ? "into" : "on"} the ${c.role} "${c.label}" on ${url}`;
+        return `${String(args.op)}${value} ${args.op === "type" ? "into" : "on"} the ${t.role} "${t.label}" on ${t.url}`;
       },
     },
     {
@@ -142,10 +167,11 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: control, required: ["controlId"] },
       scope: "submit",
       domain: tabDomain,
-      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: "click" }, ctx.signal),
-      describe: async (args) => {
-        const { control: c, url } = await named(args);
-        return `click the ${c.role} "${c.label}"${c.submit ? " (sends its form)" : ""} on ${url}`;
+      prepare: pin,
+      run: (args, ctx: ToolContext) => serial(async () => (await moved(ctx)) ?? operate(args, { op: "click" }, ctx.signal)),
+      describe: (args) => {
+        const t = args.target as Target;
+        return `click the ${t.role} "${t.label}"${t.submit ? " (sends its form)" : ""} on ${t.url}`;
       },
     },
     {
@@ -154,7 +180,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: { url: { type: "string", maxLength: 2000 } }, required: ["url"] },
       scope: "read",
       domain: (args) => hostOf(String(args.url)),
-      run: async (args, ctx: ToolContext) => {
+      run: (args, ctx: ToolContext) => serial(async () => {
         const tabId = await options.tabId();
         last = undefined;
         await api().tabs.update(tabId, { url: String(args.url) });
@@ -163,7 +189,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
           if ((await api().tabs.get(tabId)).status === "complete") break;
         }
         return { ok: true, summary: `Opened ${String(args.url)}. Call snapshot to read it.` };
-      },
+      }),
     },
     {
       name: "browser_task",
@@ -175,7 +201,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const tab = await api().tabs.get(await options.tabId());
         return `let foxpaw fill the form on ${tab.url} for the goal "${String(args.goal)}". foxpaw picks each field and click itself and may send the form. This one approval covers all of them.`;
       },
-      run: async (args, ctx: ToolContext) => {
+      run: (args, ctx: ToolContext) => serial(async () => {
         const refused = await moved(ctx);
         if (refused) return refused;
         const tabId = await options.tabId();
@@ -187,7 +213,22 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const why = [result.blockedReason && `blocked: ${result.blockedReason}`, result.message && `message: ${result.message}`].filter((line): line is string => Boolean(line));
         const lines = why.concat(result.checks.map((c) => `${c.ok ? "ok" : "not ok"}: ${c.part}: ${c.evidence}`).concat(result.unmatched.map((u) => `not matched: ${u}`)));
         return { ok: result.status === "done", summary, untrusted: lines.join("\n"), check, data: result };
-      },
+      }),
     },
   ];
+}
+
+/** The control that an `act` or `click` call is pinned to, as foxgate judges and the human approves it. */
+interface Target {
+  tabId: number;
+  /** The number of the snapshot the control came from. */
+  generation: number;
+  id: string;
+  frameId: number;
+  node: number;
+  guard: string;
+  role: string;
+  label: string;
+  submit: boolean;
+  url: string;
 }

@@ -172,6 +172,31 @@ const trailOf = (failOn?: string) => {
   };
 };
 
+describe("B8: prepare adds host-side arguments before the gate", () => {
+  it("lets the gate judge, the human approve and the tool run the prepared arguments", async () => {
+    const { tool, runs, gate, host } = await asking();
+    const prepared = { ...tool, prepare: (args: Record<string, unknown>) => ({ ...args, target: { label: "Team notes" } }) };
+    const actions: unknown[] = [];
+    const onApproval = async (request: { requestId: string; action: unknown }) => {
+      actions.push(request.action);
+      return host.approve(request.requestId);
+    };
+    await collect(createLoop({ mind: scriptedMind([send(), finish]), gate, tools: [prepared], onApproval }).run("Send."));
+    expect(actions).toEqual([expect.objectContaining({ args: { text: "hi", target: { label: "Team notes" } } })]);
+    expect(runs).toEqual([{ text: "hi", target: { label: "Team notes" } }]);
+  });
+
+  it("turns a prepare that throws into invalid-args, and the gate never sees it", async () => {
+    const { tool, gate, seen } = await asking();
+    const prepared = { ...tool, prepare: () => {
+      throw new Error("Call snapshot first.");
+    } };
+    const events = await collect(createLoop({ mind: scriptedMind([send()]), gate, tools: [prepared], maxSteps: 1 }).run("Send."));
+    expect(ofType(events, "tool-result")[0]).toMatchObject({ ok: false, reason: "invalid-args", summary: "Call snapshot first." });
+    expect(seen).toEqual([]);
+  });
+});
+
 describe("G10: the approval says what the action does", () => {
   it("puts the tool's description in the event and the request", async () => {
     const { tool, gate, host } = await asking();

@@ -57,6 +57,12 @@ export interface LoopTool {
   /** The host name the action touches, for the gate. Throw to refuse the arguments. */
   domain: (args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>;
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolOutput>;
+  /**
+   * Host-side arguments, added after the schema check and before the gate.
+   * The gate judges, the human approves and `run` gets the result. Throw to
+   * refuse the call. The browser tools pin the control here.
+   */
+  prepare?: (args: Record<string, unknown>, ctx: ToolContext) => Record<string, unknown> | Promise<Record<string, unknown>>;
   /** Plain words for the human who approves the call, for example "click the button "Pay"". Throw to refuse the call. */
   describe?: (args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>;
 }

@@ -83,6 +83,13 @@ try {
   check("nothing was sent", "", await e3.page.evaluate(() => document.getElementById("sent").textContent));
   check("trail records the refusal", true, e3.kinds.includes("loop.approval-needed") && e3.trail.at(-1).data.reason === "approval-denied" && e3.trailVerify.ok);
 
+  // B8: an approved click acts on the control that the human approved, pinned in the gate's action.
+  const nextScript = JSON.stringify([{ tool: "snapshot", args: {} }, { tool: "click", args: { controlId: "{{control:Next}}" } }, { tool: "finish", args: { summary: "next" } }, { tool: "finish", args: { summary: "next" } }]);
+  const b8 = await run("approved-click", "steps.html", "Go to the next step.", nextScript, "approve");
+  check("approved click lands on the captured control", { label: "Next", clicked: "next clicked", ok: true },
+    { label: b8.approvals[0]?.args?.target?.label, clicked: await b8.page.evaluate(() => document.getElementById("done").textContent),
+      ok: b8.trail.some((e) => e.kind === "loop.tool-result" && e.data.name === "click" && e.data.ok) });
+
   // Settings: every planner tier is offered, and each shows only its fields.
   await sidebar.evaluate(() => location.reload());
   await new Promise((resolve) => setTimeout(resolve, 500));

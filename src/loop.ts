@@ -203,9 +203,11 @@ export function createLoop(options: LoopOptions): Loop {
       const error = checkArgs(tool.parameters, args);
       if (error) return yield* failed(fail("invalid-args", error));
       const ctx: ToolContext = { signal, step, goal };
-      const domain = await attempt(async () => tool.domain(args as Record<string, unknown>, ctx));
+      const prepared = await attempt(async () => (tool.prepare ? tool.prepare(args as Record<string, unknown>, ctx) : (args as Record<string, unknown>)));
+      if (prepared.error !== undefined) return yield* failed(fail("invalid-args", prepared.error));
+      const domain = await attempt(async () => tool.domain(prepared.value, ctx));
       if (domain.error !== undefined) return yield* failed(fail("invalid-args", domain.error));
-      const action: Action = { tool: name, args: args as Record<string, unknown>, domain: domain.value, scope: tool.scope };
+      const action: Action = { tool: name, args: prepared.value, domain: domain.value, scope: tool.scope };
       if (options.budget?.toolCalls !== undefined && runs >= options.budget.toolCalls) return blocked("budget", `the run used its ${options.budget.toolCalls} tool calls`);
       const checked = await attempt(() => options.gate.check(action));
       if (checked.error !== undefined) return blocked("gate-error", checked.error);
