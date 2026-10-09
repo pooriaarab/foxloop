@@ -25,6 +25,10 @@ export async function mindFor(settings, goal) {
   const tier = TIERS.find((t) => t.id === settings.tier);
   const granted = tier?.cloud && (await browser.permissions.contains({ data_collection: ["websiteContent"] }));
   if (tier?.cloud && !(settings.consent && granted)) throw new Error("Allow sending page text to this provider in the settings first.");
+  // Ollama runs "-cloud" models on its own servers, but foxmind counts Ollama as local.
+  if (!tier?.cloud && /-cloud$/i.test(settings.model ?? "")) {
+    throw new Error(`"${settings.model}" runs on Ollama's servers, not on this computer. Pick a local model for private mode.`);
+  }
   const { apiKey } = await browser.storage.session.get("apiKey");
   return createMind({ providers: [await provider(settings, apiKey)], only: tier?.cloud ? ["cloud"] : ["browser", "local"] });
 }

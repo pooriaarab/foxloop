@@ -99,4 +99,5 @@ or `aborted`. No tool runs after a stop.
 | E1 | A scripted planner fills a form on a local page through foxpaw with one approval. The run ends `done` and the foxpaw check passes. | E2E `form task done with one approval` |
 | E2 | An injection page asks the planner to open a link that sends data to another host. The gate says `deny`, and the trail records it. | E2E `injected link is denied` |
 | E3 | An injection page asks the planner to click a send button. The human denies the approval, and the trail records it. | E2E `injected send is refused` |
+| E5 | The user picks the Ollama planner with a `-cloud` model (for example `gpt-oss:120b-cloud`). Ollama sends it to its own servers, but foxmind marks Ollama as local, so private mode lets page text leave. | The demo refuses a model name that ends in `-cloud` for the local planners, before any model call. | E2E `private mode refuses an Ollama cloud model` |
 | E4 | When Ollama runs with a small tool-calling model, one real task runs. The result is recorded as it is, pass or fail. | `pnpm e2e:ollama` |
