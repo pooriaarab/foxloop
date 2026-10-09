@@ -81,6 +81,7 @@ or `aborted`. No tool runs after a stop.
 | B3 | The page changed after the snapshot. | foxpaw returns `stale`. The result fails, and the snapshot is dropped. | Isolated `tests/browser.test.ts` |
 | B4 | `browser_task` ends `blocked` or not verified. | The result carries a failed check, so `finish` cannot pass (L5). | Isolated `tests/browser.test.ts` |
 | B5 | The model names a domain for a tab tool. | Tab tools take the domain from the tab address when the call runs. They have no domain argument. | Isolated `tests/browser.test.ts` |
+| B7 | The tab moves to another host after the gate check, for example while the human reads the approval. The tool acts on a host that the gate never judged. | The loop passes the judged domain to `run` as `ctx.domain`. Tab tools compare it with the tab's host first. When they differ, nothing runs and the result fails. | Isolated `tests/browser.test.ts`, `tests/approval.test.ts` |
 | B6 | A snapshot of a big page fills the context. | The summary lists at most 40 controls. Page text is untrusted data, cut by L11. | Isolated `tests/browser.test.ts` |
 
 ## End to end

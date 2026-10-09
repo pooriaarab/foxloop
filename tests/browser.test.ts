@@ -156,6 +156,21 @@ describe("G10: approvals name the control", () => {
   });
 });
 
+describe("B7: the tab moved after the gate check", () => {
+  it("runs nothing when the tab host is not the judged domain", async () => {
+    const { tool, calls, setUrl } = fakes([page([control(1, "Email")])]);
+    const judged = { ...ctx, domain: "shop.example" };
+    await tool("snapshot").run({}, judged);
+    setUrl("https://evil.example/");
+    for (const [name, args] of [["snapshot", {}], ["act", { controlId: "0:1", op: "type", value: "x" }], ["click", { controlId: "0:1" }], ["browser_task", { goal: "email: a@b.c" }]] as const) {
+      const out = await tool(name).run(args, judged);
+      expect(out.ok).toBe(false);
+      expect(out.summary).toMatch(/evil\.example/);
+    }
+    expect(calls).toEqual(["snapshot"]);
+  });
+});
+
 describe("B6: a big page stays small", () => {
   it("lists at most 40 controls, and puts page words only in the untrusted text", async () => {
     const many = Array.from({ length: 100 }, (_, i) => control(i, `Field ${i}`));

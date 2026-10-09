@@ -244,13 +244,13 @@ A tool is a plain object:
 | `scope` | `read`, `fill`, `submit` or `pay`, as in foxgate. |
 | `amount(args)` | `{ value, currency }`. Needed for `pay`. |
 | `domain(args, ctx)` | The host that the call touches. Throw to refuse the arguments. |
-| `run(args, ctx)` | Does the work. Returns `{ ok, summary, untrusted?, check?, data? }`. Put page text in `untrusted`. |
+| `run(args, ctx)` | Does the work. `ctx.domain` is the domain that foxgate judged, and `ctx.signal` the abort signal. Returns `{ ok, summary, untrusted?, check?, data? }`. Put page text in `untrusted`. |
 | `describe(args, ctx)` | Optional. Plain words for the approval, for example `click the button "Pay"`. |
 
 ### `browserTools({ tabId, browser?, chooser?, paw? })`
 
 The browser tool pack, over [foxpaw](https://github.com/pooriaarab/foxpaw).
-Tab tools take the domain from the tab address when the call runs.
+Tab tools take the domain from the tab address at the gate check. When the tab is on another host by the time the tool runs, the tool runs nothing.
 
 | Tool | Scope | What it does |
 |---|---|---|
@@ -296,7 +296,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 71 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 73 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
