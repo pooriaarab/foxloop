@@ -72,6 +72,7 @@ or `aborted`. No tool runs after a stop.
 |---|---|---|---|
 | P1 | Page text says "ignore previous instructions". The model reads it as an order. | Page text goes to the model only in a `tool` message (or in check feedback, P3), between delimiters that hold a random nonce. The system prompt says that text between them is data. The gate still judges every call (G3, G4). | Isolated `tests/prompt.test.ts`, E2E |
 | P3 | A failed check carries page text as evidence (a field value such as "ignore previous instructions"). It reaches the planner as plain text. | The check feedback puts the failed lines between the same delimiters as page text. | Isolated `tests/loop.test.ts` |
+| P4 | Page text reaches the model outside the delimiters: in foxpaw's blocked reason or message (they hold button labels), in an `act` refusal detail, or in the message of a tool that throws. | Summaries hold only text that foxloop or the tool writes. foxpaw's reason, message and refusal detail, and a thrown error's message, go between the delimiters. | Isolated `tests/browser.test.ts`, `tests/loop.test.ts` |
 | P2 | Page text holds a closing delimiter to end the data block early. | The nonce is new for each run, and the loop removes delimiter markers from page text. | Isolated `tests/prompt.test.ts` |
 
 ## Browser tools
