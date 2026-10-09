@@ -55,4 +55,6 @@ export interface LoopTool {
   /** The host name the action touches, for the gate. Throw to refuse the arguments. */
   domain: (args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>;
   run: (args: Record<string, unknown>, ctx: ToolContext) => Promise<ToolOutput>;
+  /** Plain words for the human who approves the call, for example "click the button "Pay"". Throw to refuse the call. */
+  describe?: (args: Record<string, unknown>, ctx: ToolContext) => string | Promise<string>;
 }

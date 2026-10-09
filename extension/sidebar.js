@@ -37,6 +37,9 @@ function item(kind, text, className = "") {
 
 function approval(event) {
   const li = item("Approve?", ` ${event.action.tool} on ${event.action.domain}`, "ask");
+  const detail = document.createElement("p");
+  detail.className = "detail";
+  detail.textContent = event.detail ?? "";
   const pre = document.createElement("pre");
   pre.textContent = event.text ?? JSON.stringify(event.action, null, 1);
   const row = document.createElement("div");
@@ -51,7 +54,7 @@ function approval(event) {
     });
     row.append(button);
   }
-  li.append(pre, row);
+  li.append(...(event.detail ? [detail] : []), pre, row);
 }
 
 function show(event) {

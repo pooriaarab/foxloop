@@ -74,12 +74,21 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     last = { tabId, page: await paw.snapshot(tabId, api()) };
     return last.page;
   };
-  const operate = async (args: Record<string, unknown>, request: ActRequest): Promise<ToolOutput> => {
+  /** The control the args name, from a snapshot of the current tab. Throws when there is none. */
+  const named = async (args: Record<string, unknown>) => {
     const tabId = await options.tabId();
     const page = last?.tabId === tabId ? last.page : undefined;
-    if (!page) return { ok: false, summary: "There is no snapshot of this page. Call snapshot first." };
-    const control = page.controls.find((c) => c.id === args.controlId);
-    if (!control) return { ok: false, summary: `No control has the id "${String(args.controlId)}" in the last snapshot. Call snapshot to read the page again.` };
+    if (!page) throw new Error("There is no snapshot of this page. Call snapshot first.");
+    const found = page.controls.find((c) => c.id === args.controlId);
+    if (!found) throw new Error(`No control has the id "${String(args.controlId)}" in the last snapshot.`);
+    return { control: found, url: page.url };
+  };
+  const operate = async (args: Record<string, unknown>, request: ActRequest): Promise<ToolOutput> => {
+    const tabId = await options.tabId();
+    const page = last?.page;
+    const found = await named(args).catch((error: Error) => error.message);
+    if (typeof found === "string" || !page) return { ok: false, summary: `${found} Call snapshot to read the page.` };
+    const { control } = found;
     const result = await paw.act(tabId, control, request, page, api());
     if (!result.ok) {
       last = undefined;
@@ -111,6 +120,11 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       scope: "fill",
       domain: tabDomain,
       run: async (args) => operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }),
+      describe: async (args) => {
+        const { control: c, url } = await named(args);
+        const value = typeof args.value === "string" ? ` "${args.value}"` : "";
+        return `${String(args.op)}${value} ${args.op === "type" ? "into" : "on"} the ${c.role} "${c.label}" on ${url}`;
+      },
     },
     {
       name: "click",
@@ -119,6 +133,10 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       scope: "submit",
       domain: tabDomain,
       run: async (args) => operate(args, { op: "click" }),
+      describe: async (args) => {
+        const { control: c, url } = await named(args);
+        return `click the ${c.role} "${c.label}"${c.submit ? " (sends its form)" : ""} on ${url}`;
+      },
     },
     {
       name: "open_url",
