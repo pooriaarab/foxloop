@@ -53,6 +53,18 @@ describe("G1-G3: the gate judges every call", () => {
     expect(ofType(events, "decision")[0]).toMatchObject({ via: "check", decision: "allow" });
   });
 
+  it("B7: gives run the domain that foxgate judged", async () => {
+    let seen: string | undefined;
+    const note = noteTool();
+    const tool = { ...note.tool, domain: () => "NOTES.local", run: async (_args: Record<string, unknown>, ctx: { domain?: string }) => {
+      seen = ctx.domain;
+      return { ok: true, summary: "saved" };
+    } };
+    const { gate } = await gateFor([tool]);
+    await collect(createLoop({ mind: scriptedMind([{ calls: [{ name: "save_note", args: { text: "a" } }] }]), gate, tools: [tool], maxSteps: 1 }).run("Save."));
+    expect(seen).toBe(DOMAIN);
+  });
+
   it("G2: a decision for another tool runs nothing", async () => {
     const note = noteTool();
     const gate: Gate = {
