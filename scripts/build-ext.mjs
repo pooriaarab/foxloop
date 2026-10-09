@@ -14,10 +14,11 @@ if (manifest.version !== pkg.version) {
 rmSync("dist-ext", { recursive: true, force: true });
 const files = readdirSync("extension");
 await build({
-  entryPoints: files.filter((f) => f.endsWith(".js")).map((f) => `extension/${f}`),
+  // Only the pages' entry scripts. The other modules are bundled into them.
+  entryPoints: ["background.js", "sidebar.js"].map((f) => `extension/${f}`),
   outdir: "dist-ext",
   bundle: true,
-  format: "iife",
+  format: "esm",
   target: "firefox153",
   logLevel: "warning",
 });

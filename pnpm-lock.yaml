@@ -24,6 +24,9 @@ importers:
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
+      foxtrail:
+        specifier: ^0.1.0
+        version: 0.1.0
       oxlint:
         specifier: ^1.87.0
         version: 1.87.0
@@ -1170,6 +1173,11 @@ packages:
   foxpaw@0.1.0:
     resolution: {integrity: sha512-kYYNAOjK60ExTND4JNGkScfXAvY3Uq0KrYuqRfP2gbbjmgX6FMhwrnFRDVWrZWR81gMZKolcdGxxSKvN3guUbw==}
     engines: {node: '>=24'}
+
+  foxtrail@0.1.0:
+    resolution: {integrity: sha512-jz2YusCAzyDYgZu9RH+5K14LNkdiayy4ySMLrNiUCmdKVvryYwuMs/4HI6IGfxTedDnwjtSl38sy0SP97BiN7Q==}
+    engines: {node: '>=24'}
+    hasBin: true
 
   fs-extra@11.4.1:
     resolution: {integrity: sha512-KYAb4c9BJQI6QqGKthV68OHe0badztdXJWKo0WtBA9IuCFPTKvE5ZdUBglP833aMjhaSPNO4A5j/EkzZtGlKjA==}
@@ -3005,6 +3013,8 @@ snapshots:
   foxgate@0.1.0: {}
 
   foxpaw@0.1.0: {}
+
+  foxtrail@0.1.0: {}
 
   fs-extra@11.4.1:
     dependencies:
