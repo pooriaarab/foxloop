@@ -203,7 +203,7 @@ export function createLoop(options: LoopOptions): Loop {
       if (decision.decision === "deny") return blocked("gate-deny", `${decision.reason}: ${decision.message}`);
       if (decision.decision === "ask") {
         if (!options.onApproval) return blocked("approval-unavailable", "the gate asks for approval, and the loop has no onApproval");
-        const described = tool.describe ? await attempt(async () => String(await tool.describe?.(action.args, ctx))) : undefined;
+        const described = tool.describe ? await attempt(async () => String(await tool.describe?.(action.args, { ...ctx, domain: action.domain }))) : undefined;
         if (described?.error !== undefined) return blocked("approval-error", `the tool cannot describe the action: ${described.error}`);
         const request: ApprovalRequest = { step, requestId: decision.requestId, action, expiresAt: decision.expiresAt, ...(described ? { detail: described.value } : {}) };
         yield { type: "approval-needed", id, ...request };
@@ -222,7 +222,7 @@ export function createLoop(options: LoopOptions): Loop {
       runs++;
       if (decision.action.tool !== name) return blocked("gate-mismatch", `the gate allowed "${decision.action.tool}", not "${name}"`);
       const judged = decision.action;
-      const ran = await race(attempt(() => tool.run(judged.args, ctx)));
+      const ran = await race(attempt(() => tool.run(judged.args, { ...ctx, domain: judged.domain })));
       if (ran === ABORTED) return { type: "aborted", step };
       if (ran.error !== undefined) return yield* failed(fail("tool-error", ran.error));
       const output: ToolOutput = ran.value;

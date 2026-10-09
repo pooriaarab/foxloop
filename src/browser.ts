@@ -70,6 +70,12 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     if (!tab.url?.startsWith("http")) throw new Error("the tab shows no web page");
     return hostOf(tab.url);
   };
+  /** Why the tool must not run: the tab left the host that the gate judged. */
+  const moved = async (ctx: ToolContext): Promise<ToolOutput | undefined> => {
+    if (ctx.domain === undefined) return undefined;
+    const host = await tabDomain().catch((error: Error) => error.message);
+    return host === ctx.domain ? undefined : { ok: false, summary: `The tab is now on ${host}, not on ${ctx.domain} that the gate checked. Nothing ran.` };
+  };
   const read = async (tabId: number) => {
     last = { tabId, page: await paw.snapshot(tabId, api()) };
     return last.page;
@@ -108,7 +114,9 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: {} },
       scope: "read",
       domain: tabDomain,
-      run: async () => {
+      run: async (_args, ctx: ToolContext) => {
+        const refused = await moved(ctx);
+        if (refused) return refused;
         const page = await read(await options.tabId());
         return { ok: true, summary: `Read the page: ${page.controls.length} controls${page.more ? "; the page can scroll" : ""}.`, untrusted: pageText(page) };
       },
@@ -119,7 +127,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: { ...control, op: { type: "string", enum: [...OPS] }, value: { type: "string", maxLength: 2000 } }, required: ["controlId", "op"] },
       scope: "fill",
       domain: tabDomain,
-      run: async (args) => operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }),
+      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }),
       describe: async (args) => {
         const { control: c, url } = await named(args);
         const value = typeof args.value === "string" ? ` "${args.value}"` : "";
@@ -132,7 +140,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: control, required: ["controlId"] },
       scope: "submit",
       domain: tabDomain,
-      run: async (args) => operate(args, { op: "click" }),
+      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: "click" }),
       describe: async (args) => {
         const { control: c, url } = await named(args);
         return `click the ${c.role} "${c.label}"${c.submit ? " (sends its form)" : ""} on ${url}`;
@@ -162,6 +170,8 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       scope: "submit",
       domain: tabDomain,
       run: async (args, ctx: ToolContext) => {
+        const refused = await moved(ctx);
+        if (refused) return refused;
         const tabId = await options.tabId();
         last = undefined;
         const result = await paw.runTask(tabId, String(args.goal), { browser: api(), signal: ctx.signal, ...(options.chooser ? { chooser: options.chooser } : {}) });
