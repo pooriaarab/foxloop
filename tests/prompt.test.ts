@@ -60,8 +60,8 @@ describe("L11: results and history stay small", () => {
   it("cuts the summary and the page text", () => {
     const nonce = newNonce();
     const text = resultText("snapshot", { ok: true, summary: "s".repeat(5000), untrusted: "u".repeat(10000) }, nonce);
-    expect(text.match(/s+/)?.[0].length).toBe(LIMITS.summary);
-    expect(text.match(/u+/)?.[0].length).toBe(LIMITS.untrusted);
+    expect(text.match(/s{100,}/)?.[0].length).toBe(LIMITS.summary);
+    expect(text.match(/u{100,}/)?.[0].length).toBe(LIMITS.untrusted);
     expect(text).toContain("[cut]");
   });
 
