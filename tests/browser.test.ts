@@ -139,6 +139,23 @@ describe("B5: tab tools take the domain from the tab", () => {
   });
 });
 
+describe("G10: approvals name the control", () => {
+  it("describes a click and an act with the role, the label and the page", async () => {
+    const button = control(3, "Send my details", { role: "button", tag: "button", type: "submit", submit: true });
+    const { tool } = fakes([page([control(1, "Email"), button])]);
+    await tool("snapshot").run({}, ctx);
+    expect(await tool("click").describe?.({ controlId: "0:3" }, ctx)).toBe('click the button "Send my details" (sends its form) on https://shop.example/signup');
+    expect(await tool("act").describe?.({ controlId: "0:1", op: "type", value: "sam@example.com" }, ctx)).toBe('type "sam@example.com" into the textbox "Email" on https://shop.example/signup');
+  });
+
+  it("refuses to describe a control it cannot name", async () => {
+    const { tool } = fakes([page([control(1, "Email")])]);
+    await expect(Promise.resolve().then(() => tool("click").describe?.({ controlId: "0:1" }, ctx))).rejects.toThrow(/snapshot/);
+    await tool("snapshot").run({}, ctx);
+    await expect(Promise.resolve().then(() => tool("click").describe?.({ controlId: "0:9" }, ctx))).rejects.toThrow();
+  });
+});
+
 describe("B6: a big page stays small", () => {
   it("lists at most 40 controls, and puts page words only in the untrusted text", async () => {
     const many = Array.from({ length: 100 }, (_, i) => control(i, `Field ${i}`));

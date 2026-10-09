@@ -36,7 +36,7 @@ export type LoopEvent =
   | { type: "plan"; step: number; text: string | null; calls: { id: string; name: string; args: string }[]; provider?: string; tier?: string }
   | { type: "tool-call"; step: number; id: string; name: string; args: unknown }
   | { type: "decision"; step: number; id: string; via: "check" | "redeem"; decision: "allow" | "ask" | "deny"; reason?: string; action?: Action }
-  | { type: "approval-needed"; step: number; id: string; requestId: string; action: Action; expiresAt: number }
+  | { type: "approval-needed"; step: number; id: string; requestId: string; action: Action; expiresAt: number; detail?: string }
   | { type: "tool-result"; step: number; id: string; name: string; ok: boolean; summary: string; reason?: ResultReason; data?: unknown }
   | { type: "check"; step: number; ok: boolean; checks: CheckResult["checks"]; problem?: string }
   | { type: "done"; step: number; summary: string; check: CheckResult }
@@ -77,6 +77,8 @@ export interface ApprovalRequest {
   /** The exact action the token will allow. */
   action: Action;
   expiresAt: number;
+  /** The tool's `describe` text, when the tool has one. */
+  detail?: string;
 }
 
 export interface Loop {
@@ -201,8 +203,10 @@ export function createLoop(options: LoopOptions): Loop {
       if (decision.decision === "deny") return blocked("gate-deny", `${decision.reason}: ${decision.message}`);
       if (decision.decision === "ask") {
         if (!options.onApproval) return blocked("approval-unavailable", "the gate asks for approval, and the loop has no onApproval");
-        yield { type: "approval-needed", step, id, requestId: decision.requestId, action, expiresAt: decision.expiresAt };
-        const request: ApprovalRequest = { step, requestId: decision.requestId, action, expiresAt: decision.expiresAt };
+        const described = tool.describe ? await attempt(async () => String(await tool.describe?.(action.args, ctx))) : undefined;
+        if (described?.error !== undefined) return blocked("approval-error", `the tool cannot describe the action: ${described.error}`);
+        const request: ApprovalRequest = { step, requestId: decision.requestId, action, expiresAt: decision.expiresAt, ...(described ? { detail: described.value } : {}) };
+        yield { type: "approval-needed", id, ...request };
         const asked = await race(attempt(async () => options.onApproval?.(request)));
         if (asked === ABORTED) return { type: "aborted", step };
         if (asked.error !== undefined) return blocked("approval-error", asked.error);

@@ -160,6 +160,32 @@ const trailOf = (failOn?: string) => {
   };
 };
 
+describe("G10: the approval says what the action does", () => {
+  it("puts the tool's description in the event and the request", async () => {
+    const { tool, gate, host } = await asking();
+    const described = { ...tool, describe: (args: Record<string, unknown>) => `send the note "${String(args.text)}" to the team` };
+    const details: unknown[] = [];
+    const onApproval = async (request: { requestId: string; detail?: string }) => {
+      details.push(request.detail);
+      return host.approve(request.requestId);
+    };
+    const events = await collect(createLoop({ mind: scriptedMind([send(), finish]), gate, tools: [described], onApproval }).run("Send."));
+    expect(ofType(events, "approval-needed")[0]?.detail).toBe('send the note "hi" to the team');
+    expect(details).toEqual(['send the note "hi" to the team']);
+  });
+
+  it("stops the run when describe throws, and nothing runs", async () => {
+    const { tool, runs, gate, host } = await asking();
+    const described = { ...tool, describe: () => {
+      throw new Error("no such control");
+    } };
+    const onApproval = async (request: { requestId: string }) => host.approve(request.requestId);
+    const events = await collect(createLoop({ mind: scriptedMind([send()]), gate, tools: [described], onApproval }).run("Send."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "approval-error" });
+    expect(runs).toEqual([]);
+  });
+});
+
 describe("T1-T3: the trail", () => {
   it("T1: every event goes in, the decision before the tool runs", async () => {
     const { tool, gate, host } = await asking();
