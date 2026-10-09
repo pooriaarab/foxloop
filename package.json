@@ -43,6 +43,7 @@
     "web-ext": "^10.7.0"
   },
   "dependencies": {
-    "foxgate": "^0.1.0"
+    "foxgate": "^0.1.0",
+    "foxpaw": "^0.1.0"
   }
 }
