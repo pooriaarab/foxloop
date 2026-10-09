@@ -211,6 +211,8 @@ describe("P3: check evidence is data", () => {
   });
 });
 
+const lookThen = (second: unknown) => [{ calls: [{ name: "look", args: { text: "a" } }] }, second, finish, finish] as Parameters<typeof scriptedMind>[0];
+
 describe("L14: only the newest tool result's check counts", () => {
   const passed = { ok: true, checks: [{ part: "page", ok: true, evidence: "looks fine" }] };
   const twoTools = (later: LoopTool["run"]) => {
@@ -218,11 +220,10 @@ describe("L14: only the newest tool result's check counts", () => {
     const pay: LoopTool = { ...noteTool().tool, name: "pay_click", run: later };
     return [look, pay];
   };
-  const steps = (second: unknown) => [{ calls: [{ name: "look", args: { text: "a" } }] }, second, finish, finish] as Parameters<typeof scriptedMind>[0];
 
   it("a later failed result clears the old check", async () => {
     const tools = twoTools(async () => ({ ok: false, summary: "payment failed" }));
-    const { loop } = await setup(tools, steps({ calls: [{ name: "pay_click", args: { text: "a" } }] }));
+    const { loop } = await setup(tools, lookThen({ calls: [{ name: "pay_click", args: { text: "a" } }] }));
     const events = await collect(loop.run("Pay."));
     expect(ofType(events, "check")[0]?.ok).toBe(false);
     expect(last(events)).toMatchObject({ type: "blocked", reason: "check-failed" });
@@ -236,7 +237,7 @@ describe("L14: only the newest tool result's check counts", () => {
       [async () => ({ ok: true, summary: "paid, no check" }), { calls: [{ name: "pay_click", args: { text: "a" } }] }],
     ] as const;
     for (const [run, second] of seconds) {
-      const { loop } = await setup(twoTools(run), steps(second));
+      const { loop } = await setup(twoTools(run), lookThen(second));
       const events = await collect(loop.run("Pay."));
       expect(last(events)).toMatchObject({ type: "blocked", reason: "check-failed" });
     }
