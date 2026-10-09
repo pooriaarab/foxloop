@@ -34,6 +34,7 @@ or `aborted`. No tool runs after a stop.
 | L4 | A tool throws. | The error message (cut to 500 characters) goes back to the model as a failed result with `tool-error`. It counts toward L3. | Isolated `tests/loop.test.ts` |
 | L5 | The model says it is done, but the result is wrong. | The loop runs the check. A failed check goes back to the model. After 2 failed checks, the run stops with `blocked` `check-failed`. | Isolated `tests/loop.test.ts` |
 | L6 | The model says it is done, but no tool result can show it. | The default check fails with "nothing checked the result". | Isolated `tests/loop.test.ts` |
+| L14 | An early tool returns a passing check, then a later tool fails (for example a payment). The model calls `finish`, and the run ends `done` on the old check. | Every tool result clears the old check: a failed result, a thrown tool, an invalid or unknown call, or a result with no check. Only the newest tool result's check counts. | Isolated `tests/loop.test.ts` |
 | L7 | The run uses more tokens, tool calls or time than the budget. | Before each model call and each tool call, the loop compares the totals with `budget`. Over the budget, it stops with `blocked` `budget`. | Isolated `tests/loop.test.ts` |
 | L8 | The user aborts during a model call. | The signal goes to `mind.chat`. The run stops with `aborted`. No tool runs. | Isolated `tests/loop.test.ts` |
 | L9 | The user aborts during a tool call, and the tool ignores the signal. | The run stops with `aborted` at once. The late result does not go to the model. | Isolated `tests/loop.test.ts` |

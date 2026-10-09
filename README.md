@@ -156,7 +156,8 @@ flowchart TD
    between delimiters with a random nonce, and the prompt says that this text
    is data.
 7. When the planner calls `finish`, the check runs. By default, the newest
-   check that a tool returned must pass. `browser_task` returns foxpaw's check.
+   tool result must carry a passing check. A later result with no check, a
+   failed result or an error clears it. `browser_task` returns foxpaw's check.
 
 ```mermaid
 sequenceDiagram
@@ -209,7 +210,7 @@ time; a second `run` throws `FoxloopError` `busy`.
 | `trail` | none | `{ append({ actor, kind, data }) }`. A foxtrail `Log` fits. Each event is one entry with the kind `loop.<event type>`. |
 | `maxSteps` | 20 | The most model calls in one run. |
 | `budget` | none | `{ tokens?, toolCalls?, ms? }`. Tokens come from the model's usage, else from the text length divided by 4. |
-| `check` | the newest tool check | `({ goal, summary, lastCheck }) => CheckResult`. Decides if `finish` passes. |
+| `check` | the newest tool result's check | `({ goal, summary, lastCheck }) => CheckResult`. Decides if `finish` passes. |
 | `now` | `Date.now` | The clock for the time budget. |
 
 ### Events
@@ -296,7 +297,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 74 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 76 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
@@ -350,8 +351,9 @@ sentence into its `finish` summary. No tool could act on it.
   can still follow or repeat injected text, as our Ollama runs show.
 - Strict schemas refuse extra arguments. Small models often add one, and then
   the run stops with `repeated-failure`.
-- The default check trusts the newest check that a tool returned. `act` and
-  `click` return no check. For flows built from them, pass your own `check`.
+- The default check needs a check on the newest tool result. `act`, `click`,
+  `snapshot` and `open_url` return no check, so a run that ends with one of
+  them cannot pass. For flows built from them, pass your own `check`.
 - The loop keeps its state in memory. When Firefox unloads the background
   page, a run ends. An open sidebar keeps the page loaded.
 - `browser_task` and `click` can send forms. foxgate asks a human for each
