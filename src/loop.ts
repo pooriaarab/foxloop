@@ -37,7 +37,7 @@ export type LoopEvent =
   | { type: "tool-call"; step: number; id: string; name: string; args: unknown }
   | { type: "decision"; step: number; id: string; via: "check" | "redeem"; decision: "allow" | "ask" | "deny"; reason?: string; action?: Action }
   | { type: "approval-needed"; step: number; id: string; requestId: string; action: Action; expiresAt: number; detail?: string }
-  | { type: "tool-result"; step: number; id: string; name: string; ok: boolean; summary: string; reason?: ResultReason; data?: unknown }
+  | { type: "tool-result"; step: number; id: string; name: string; ok: boolean; summary: string; reason?: ResultReason; detail?: string; data?: unknown }
   | { type: "check"; step: number; ok: boolean; checks: CheckResult["checks"]; problem?: string }
   | { type: "done"; step: number; summary: string; check: CheckResult }
   | { type: "blocked"; step: number; reason: BlockReason; message: string }
@@ -182,10 +182,11 @@ export function createLoop(options: LoopOptions): Loop {
 
     /** Runs one tool call. Returns a stop event, or undefined to go on. */
     async function* call(id: string, name: string, raw: string): AsyncGenerator<LoopEvent, LoopEvent | undefined, undefined> {
-      const fail = (reason: ResultReason, summary: string): LoopEvent => {
+      /** `detail` may hold outside text, so the model gets it only as delimited data. */
+      const fail = (reason: ResultReason, summary: string, detail?: string): LoopEvent => {
         lastCheck = undefined;
-        messages.push({ role: "tool", tool_call_id: id, content: resultText(name, { ok: false, summary }, nonce) });
-        return { type: "tool-result", step, id, name, ok: false, summary, reason };
+        messages.push({ role: "tool", tool_call_id: id, content: resultText(name, { ok: false, summary, untrusted: detail }, nonce) });
+        return { type: "tool-result", step, id, name, ok: false, summary, reason, ...(detail ? { detail } : {}) };
       };
       const args = parse(raw);
       yield { type: "tool-call", step, id, name, args };
@@ -225,7 +226,7 @@ export function createLoop(options: LoopOptions): Loop {
       const judged = decision.action;
       const ran = await race(attempt(() => tool.run(judged.args, { ...ctx, domain: judged.domain })));
       if (ran === ABORTED) return { type: "aborted", step };
-      if (ran.error !== undefined) return yield* failed(fail("tool-error", ran.error));
+      if (ran.error !== undefined) return yield* failed(fail("tool-error", "The tool threw an error. Its message is below.", ran.error));
       const output: ToolOutput = ran.value;
       lastCheck = output.check;
       messages.push({ role: "tool", tool_call_id: id, content: resultText(name, output, nonce) });

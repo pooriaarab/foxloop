@@ -98,7 +98,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     const result = await paw.act(tabId, control, request, page, api());
     if (!result.ok) {
       last = undefined;
-      return { ok: false, summary: `foxpaw did not act: ${result.reason}${result.detail ? ` (${result.detail})` : ""}. Call snapshot to read the page again.` };
+      return { ok: false, summary: `foxpaw did not act: ${result.reason}. Call snapshot to read the page again.`, ...(result.detail ? { untrusted: `Detail: ${result.detail}` } : {}) };
     }
     await paw.settle(tabId, { frameId: control.frameId }, api());
     const after = await read(tabId).catch(() => undefined);
@@ -175,10 +175,11 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const tabId = await options.tabId();
         last = undefined;
         const result = await paw.runTask(tabId, String(args.goal), { browser: api(), signal: ctx.signal, ...(options.chooser ? { chooser: options.chooser } : {}) });
-        const why = result.blockedReason ?? result.message;
-        const summary = `foxpaw ${result.status}${why ? ` (${why})` : ""}; verified: ${result.verified}; ${result.steps.length} steps; ${result.unmatched.length} parts not matched.`;
+        // foxpaw's reason and message can quote the page, so they go with the untrusted lines.
+        const summary = `foxpaw ${result.status}; verified: ${result.verified}; ${result.steps.length} steps; ${result.unmatched.length} parts not matched.`;
         const check = { ok: result.verified, checks: result.checks, ...(result.problem ? { problem: result.problem } : {}) };
-        const lines = result.checks.map((c) => `${c.ok ? "ok" : "not ok"}: ${c.part}: ${c.evidence}`).concat(result.unmatched.map((u) => `not matched: ${u}`));
+        const why = [result.blockedReason && `blocked: ${result.blockedReason}`, result.message && `message: ${result.message}`].filter((line): line is string => Boolean(line));
+        const lines = why.concat(result.checks.map((c) => `${c.ok ? "ok" : "not ok"}: ${c.part}: ${c.evidence}`).concat(result.unmatched.map((u) => `not matched: ${u}`)));
         return { ok: result.status === "done", summary, untrusted: lines.join("\n"), check, data: result };
       },
     },

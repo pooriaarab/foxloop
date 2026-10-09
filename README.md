@@ -221,7 +221,7 @@ time; a second `run` throws `FoxloopError` `busy`.
 | `tool-call` | A call is about to be checked | `id`, `name`, `args` |
 | `decision` | The gate answered | `via` (`check` or `redeem`), `decision`, `reason`, `action` |
 | `approval-needed` | The gate asks a human | `requestId`, `action`, `expiresAt`, `detail` |
-| `tool-result` | A call ended | `name`, `ok`, `summary`, `reason` (`invalid-args`, `unknown-tool`, `tool-error`, `failed`), `data` |
+| `tool-result` | A call ended | `name`, `ok`, `summary`, `reason` (`invalid-args`, `unknown-tool`, `tool-error`, `failed`), `detail` (a thrown error's message), `data` |
 | `check` | The planner called `finish` | `ok`, `checks`, `problem` |
 | `done` | The check passed | `summary`, `check` |
 | `blocked` | The run stopped | `reason`, `message` |
@@ -245,7 +245,7 @@ A tool is a plain object:
 | `scope` | `read`, `fill`, `submit` or `pay`, as in foxgate. |
 | `amount(args)` | `{ value, currency }`. Needed for `pay`. |
 | `domain(args, ctx)` | The host that the call touches. Throw to refuse the arguments. |
-| `run(args, ctx)` | Does the work. `ctx.domain` is the domain that foxgate judged, and `ctx.signal` the abort signal. Returns `{ ok, summary, untrusted?, check?, data? }`. Put page text in `untrusted`. |
+| `run(args, ctx)` | Does the work. `ctx.domain` is the domain that foxgate judged, and `ctx.signal` the abort signal. Returns `{ ok, summary, untrusted?, check?, data? }`. The model reads `summary` as trusted, so write it yourself; put any page text, and any error text that can quote a page, in `untrusted`. A thrown error's message goes to the model as data. |
 | `describe(args, ctx)` | Optional. Plain words for the approval, for example `click the button "Pay"`. |
 
 ### `browserTools({ tabId, browser?, chooser?, paw? })`
@@ -297,7 +297,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 76 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 79 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
