@@ -66,7 +66,7 @@ function show(event) {
   } else if (event.type === "approval-needed") {
     approval(event);
   } else if (event.type === "tool-result") {
-    item(event.ok ? "Result" : "Failed", ` ${event.name}: ${event.summary}`, event.ok ? "ok" : "bad");
+    item(event.ok ? "Result" : "Failed", ` ${event.name}: ${event.summary}${event.detail ? ` (${event.detail})` : ""}`, event.ok ? "ok" : "bad");
   } else if (event.type === "check") {
     item(event.ok ? "Check passed" : "Check failed", ` ${event.checks.map((c) => `${c.ok ? "ok" : "not ok"} ${c.part}`).join("; ")}`, event.ok ? "ok" : "bad");
   }
