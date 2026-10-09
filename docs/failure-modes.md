@@ -60,7 +60,7 @@ or `aborted`. No tool runs after a stop.
 
 | # | Failure mode | Wanted behaviour | Test |
 |---|---|---|---|
-| T1 | A decision or a result is not in the trail. | The loop appends `loop.plan`, `loop.decision`, `loop.result`, `loop.check` and `loop.stop` entries. A decision goes in before the tool runs. | Isolated `tests/approval.test.ts`, E2E |
+| T1 | A decision or a result is not in the trail. | The loop appends one entry for each event, with the kind `loop.<event type>` (`loop.plan`, `loop.decision`, `loop.tool-result`, `loop.blocked`...). A decision goes in before the tool runs. | Isolated `tests/approval.test.ts`, E2E |
 | T2 | The trail write fails before a tool runs. | The tool does not run. The run stops with `blocked` `trail-failed`. | Isolated `tests/approval.test.ts` |
 | T3 | The trail write fails after a tool ran. | The run stops with `blocked` `trail-failed`. The loop does not call the model again. | Isolated `tests/approval.test.ts` |
 

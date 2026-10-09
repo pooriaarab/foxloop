@@ -60,6 +60,23 @@ export interface LoopOptions {
   maxSteps?: number;
   /** Decides if `finish` passes. Default: the newest tool check must pass. */
   check?: (input: CheckInput) => CheckResult | Promise<CheckResult>;
+  /** Called when the gate asks. Show `action` to the human; return the token from `host.approve`, or null for no. */
+  onApproval?: (request: ApprovalRequest) => Promise<string | null>;
+  /** Gets one entry per event, before the loop goes on. A foxtrail `Log` fits. If a write fails, the run stops. */
+  trail?: { append(entry: { actor: string; kind: string; data?: unknown }): Promise<unknown> };
+  /** Stop the run when it uses this much. Tokens come from the model's usage, else from text length / 4. */
+  budget?: { tokens?: number; toolCalls?: number; ms?: number };
+  /** The clock in ms, for the time budget. Default: Date.now. */
+  now?: () => number;
+}
+
+/** What `onApproval` gets. */
+export interface ApprovalRequest {
+  step: number;
+  requestId: string;
+  /** The exact action the token will allow. */
+  action: Action;
+  expiresAt: number;
 }
 
 export interface Loop {
@@ -101,6 +118,14 @@ const defsOf = (tools: Iterable<LoopTool>): ToolDef[] => [
   },
 ];
 
+const ABORTED = Symbol("aborted");
+const textOf = (messages: { content: string | null; tool_calls?: unknown }[]) =>
+  messages.reduce((sum, m) => sum + (m.content?.length ?? 0) + (m.tool_calls ? JSON.stringify(m.tool_calls).length : 0), 0);
+const dataOf = (event: LoopEvent) => {
+  const { type: _type, ...data } = event;
+  return JSON.parse(JSON.stringify(data)) as unknown;
+};
+
 const failedChecks = (check: CheckResult) =>
   check.checks.filter((c) => !c.ok).map((c) => `${c.part}: ${c.evidence}`).concat(check.problem ? [check.problem] : []).join("; ");
 
@@ -111,10 +136,42 @@ export function createLoop(options: LoopOptions): Loop {
   const defs = defsOf(tools.values());
   let running = false;
 
+  const now = options.now ?? Date.now;
+  const overBudget = (used: number, ms: number) => {
+    const budget = options.budget ?? {};
+    if (budget.tokens !== undefined && used >= budget.tokens) return `the run used ${used} of ${budget.tokens} tokens`;
+    if (budget.ms !== undefined && ms >= budget.ms) return `the run took ${ms} of ${budget.ms} ms`;
+    return undefined;
+  };
+
+  /** Writes each event to the trail before it goes on. A failed write stops the run, and the inner steps never resume. */
   async function* run(goal: string, runOptions: { signal?: AbortSignal } = {}): AsyncGenerator<LoopEvent, void, undefined> {
+    const inner = steps(goal, runOptions);
+    try {
+      for await (const event of inner) {
+        try {
+          await options.trail?.append({ actor: "foxloop", kind: `loop.${event.type}`, data: dataOf(event) });
+        } catch (cause) {
+          const stop: LoopEvent = { type: "blocked", step: event.step, reason: "trail-failed", message: `the trail write failed: ${message(cause)}` };
+          await options.trail?.append({ actor: "foxloop", kind: "loop.blocked", data: dataOf(stop) }).catch(() => undefined);
+          return yield stop;
+        }
+        yield event;
+      }
+    } finally {
+      await inner.return(undefined);
+    }
+  }
+
+  async function* steps(goal: string, runOptions: { signal?: AbortSignal } = {}): AsyncGenerator<LoopEvent, void, undefined> {
     if (running) throw new FoxloopError("busy", "a run is in progress on this loop");
     running = true;
-    const signal = runOptions.signal;
+    const signal = runOptions.signal ?? new AbortController().signal;
+    const started = now();
+    let [tokens, runs] = [0, 0];
+    /** Resolves with ABORTED when the run is aborted, so a call that ignores the signal cannot hold the run. */
+    const race = <T>(work: Promise<T>): Promise<T | typeof ABORTED> =>
+      signal.aborted ? Promise.resolve(ABORTED) : Promise.race([work, new Promise<typeof ABORTED>((resolve) => signal.addEventListener("abort", () => resolve(ABORTED), { once: true }))]);
     const nonce = newNonce();
     const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce) }, { role: "user", content: `Goal: ${goal}` }];
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
@@ -133,18 +190,36 @@ export function createLoop(options: LoopOptions): Loop {
       if (!tool) return yield* failed(fail("unknown-tool", `There is no tool "${name}". Tools: ${defs.map((d) => d.function.name).join(", ")}.`));
       const error = checkArgs(tool.parameters, args);
       if (error) return yield* failed(fail("invalid-args", error));
-      const ctx: ToolContext = { signal: signal ?? new AbortController().signal, step, goal };
+      const ctx: ToolContext = { signal, step, goal };
       const domain = await attempt(async () => tool.domain(args as Record<string, unknown>, ctx));
       if (domain.error !== undefined) return yield* failed(fail("invalid-args", domain.error));
       const action: Action = { tool: name, args: args as Record<string, unknown>, domain: domain.value, scope: tool.scope };
       const checked = await attempt(() => options.gate.check(action));
       if (checked.error !== undefined) return blocked("gate-error", checked.error);
-      const decision = checked.value;
+      let decision = checked.value;
       yield { type: "decision", step, id, via: "check", decision: decision.decision, ...(decision.decision === "deny" ? { reason: decision.reason } : {}), action };
       if (decision.decision === "deny") return blocked("gate-deny", `${decision.reason}: ${decision.message}`);
-      if (decision.decision === "ask") return blocked("approval-unavailable", "the gate asks for approval, and the loop has no onApproval");
+      if (decision.decision === "ask") {
+        if (!options.onApproval) return blocked("approval-unavailable", "the gate asks for approval, and the loop has no onApproval");
+        yield { type: "approval-needed", step, id, requestId: decision.requestId, action, expiresAt: decision.expiresAt };
+        const request: ApprovalRequest = { step, requestId: decision.requestId, action, expiresAt: decision.expiresAt };
+        const asked = await race(attempt(async () => options.onApproval?.(request)));
+        if (asked === ABORTED) return { type: "aborted", step };
+        if (asked.error !== undefined) return blocked("approval-error", asked.error);
+        if (typeof asked.value !== "string" || !asked.value) return blocked("approval-denied", "the human did not approve the action");
+        const token = asked.value;
+        const redeemed = await attempt(() => options.gate.redeem(token, action));
+        if (redeemed.error !== undefined) return blocked("gate-error", redeemed.error);
+        decision = redeemed.value;
+        yield { type: "decision", step, id, via: "redeem", decision: decision.decision, ...(decision.decision === "deny" ? { reason: decision.reason } : {}), action };
+        if (decision.decision !== "allow") return blocked("gate-deny", decision.decision === "deny" ? `${decision.reason}: ${decision.message}` : "the gate asked again");
+      }
+      if (options.budget?.toolCalls !== undefined && runs >= options.budget.toolCalls) return blocked("budget", `the run used its ${options.budget.toolCalls} tool calls`);
+      runs++;
       if (decision.action.tool !== name) return blocked("gate-mismatch", `the gate allowed "${decision.action.tool}", not "${name}"`);
-      const ran = await attempt(() => tool.run(decision.action.args, ctx));
+      const judged = decision.action;
+      const ran = await race(attempt(() => tool.run(judged.args, ctx)));
+      if (ran === ABORTED) return { type: "aborted", step };
       if (ran.error !== undefined) return yield* failed(fail("tool-error", ran.error));
       const output: ToolOutput = ran.value;
       if (output.check) lastCheck = output.check;
@@ -172,11 +247,17 @@ export function createLoop(options: LoopOptions): Loop {
 
     try {
       while (true) {
+        if (signal.aborted) return yield { type: "aborted", step };
         if (step >= maxSteps) return yield blocked("max-steps", `the planner made ${maxSteps} calls without a passing finish`);
+        const over = overBudget(tokens, now() - started);
+        if (over) return yield blocked("budget", over);
         step++;
-        const answer = await attempt(() => options.mind.chat(fitHistory(messages, nonce), { tools: defs, signal }));
+        const history = fitHistory(messages, nonce);
+        const answer = await race(attempt(() => options.mind.chat(history, { tools: defs, signal })));
+        if (answer === ABORTED || signal.aborted) return yield { type: "aborted", step };
         if (answer.error !== undefined) return yield blocked("model-error", answer.error);
         const reply: ChatReply = answer.value;
+        tokens += reply.usage ? reply.usage.inputTokens + reply.usage.outputTokens : Math.ceil((textOf(history) + textOf([reply.message])) / 4);
         const calls = reply.message.tool_calls ?? [];
         yield {
           type: "plan", step, text: reply.message.content, calls: calls.map((c) => ({ id: c.id, name: c.function.name, args: c.function.arguments })),
@@ -195,7 +276,8 @@ export function createLoop(options: LoopOptions): Loop {
           const key = `${c.function.name} ${c.function.arguments}`;
           repeats = key === lastKey ? repeats + 1 : 1;
           lastKey = key;
-          stop = repeats >= REPEAT_LIMIT
+          if (signal.aborted) stop = { type: "aborted", step };
+          else stop = repeats >= REPEAT_LIMIT
             ? blocked("repeated-call", `the planner asked for the same ${c.function.name} call ${REPEAT_LIMIT} times in a row`)
             : yield* call(c.id, c.function.name, c.function.arguments);
         }
