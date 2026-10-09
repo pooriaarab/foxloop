@@ -37,6 +37,8 @@ export interface ToolContext {
   /** The number of the model call that asked for this tool, from 1. */
   step: number;
   goal: string;
+  /** The domain that foxgate judged. Set for `run` and `describe`, not for `domain`. */
+  domain?: string;
 }
 
 /**
