@@ -186,7 +186,10 @@ sequenceDiagram
 ```
 
 foxloop writes each event to the trail before it goes on. If a write fails,
-the run stops with `trail-failed`, so no step runs without a record.
+the run stops with `trail-failed`, so no step runs without a record. An abort
+ends the run at once. Tools get the signal, and `act` and `click` check it
+before they act. When a tool still ends after the abort, its result goes to
+the trail as `loop.late-result`.
 
 Every failure mode has a test or an E2E check. See
 [docs/failure-modes.md](docs/failure-modes.md).
@@ -210,7 +213,7 @@ time; a second `run` throws `FoxloopError` `busy`.
 | `onApproval` | none | `(request) => Promise<string \| null>`. Show `request.action` and `request.detail` to the human. Return the token from `host.approve`, or `null` for no. With no `onApproval`, an `ask` stops the run. |
 | `trail` | none | `{ append({ actor, kind, data }) }`. A foxtrail `Log` fits. Each event is one entry with the kind `loop.<event type>`. |
 | `maxSteps` | 20 | The most model calls in one run. |
-| `budget` | none | `{ tokens?, toolCalls?, ms? }`. Tokens come from the model's usage, else from the text length divided by 4. |
+| `budget` | none | `{ tokens?, toolCalls?, ms? }`. Tokens come from the model's usage, else from the text length divided by 4. The tool call budget is checked before the gate, so no human approves a call that the budget refuses. |
 | `check` | the newest tool result's check | `({ goal, summary, lastCheck }) => CheckResult`. Decides if `finish` passes. |
 | `now` | `Date.now` | The clock for the time budget. |
 
@@ -298,7 +301,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 82 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 85 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
