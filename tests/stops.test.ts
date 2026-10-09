@@ -96,3 +96,41 @@ describe("L8, L9: abort", () => {
     expect(mind.seen.length).toBe(1);
   });
 });
+
+describe("L15, L16: late results and the budget before approval", () => {
+  it("L15: logs a tool result that ends after the abort", async () => {
+    const controller = new AbortController();
+    const entries: { kind: string; data?: unknown }[] = [];
+    const trail = { append: async (entry: { kind: string; data?: unknown }) => void entries.push(entry) };
+    const slow: LoopTool = {
+      ...noteTool().tool,
+      run: () => {
+        setTimeout(() => controller.abort(), 10);
+        return new Promise((resolve) => setTimeout(() => resolve({ ok: true, summary: "clicked late" }), 100));
+      },
+    };
+    const { gate } = await gateFor([slow]);
+    const events = await collect(createLoop({ mind: scriptedMind([save("a")]), gate, tools: [slow], trail }).run("Save.", { signal: controller.signal }));
+    expect(last(events)?.type).toBe("aborted");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    expect(entries.map((e) => e.kind).slice(-2)).toEqual(["loop.aborted", "loop.late-result"]);
+    expect(entries.at(-1)?.data).toMatchObject({ name: "save_note", ok: true, summary: "clicked late" });
+  });
+
+  it("L16: checks the tool call budget before it asks the human", async () => {
+    const note = noteTool();
+    const send: LoopTool = { ...noteTool().tool, name: "send_note", scope: "submit" };
+    const { gate, host } = await gateFor([note.tool, send], [{ scope: "fill", domains: ["notes.local"] }, { scope: "submit", domains: ["notes.local"] }]);
+    let asked = 0;
+    const onApproval = async (request: { requestId: string }) => {
+      asked++;
+      return host.approve(request.requestId);
+    };
+    const mind = scriptedMind([save("a"), { calls: [{ name: "send_note", args: { text: "b" } }] }]);
+    const events = await collect(createLoop({ mind, gate, tools: [note.tool, send], budget: { toolCalls: 1 }, onApproval }).run("Save."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "budget" });
+    expect(asked).toBe(0);
+    expect(ofType(events, "decision").length).toBe(1);
+  });
+});
+
