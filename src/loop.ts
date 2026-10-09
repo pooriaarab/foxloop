@@ -47,7 +47,7 @@ export type LoopEvent =
 export interface CheckInput {
   goal: string;
   summary: string;
-  /** The newest check that a tool returned, if any. */
+  /** The check of the newest tool result, if that result had one. */
   lastCheck?: CheckResult;
 }
 
@@ -58,7 +58,7 @@ export interface LoopOptions {
   tools: LoopTool[];
   /** The most model calls in one run. Default 20. */
   maxSteps?: number;
-  /** Decides if `finish` passes. Default: the newest tool check must pass. */
+  /** Decides if `finish` passes. Default: the newest tool result must carry a passing check. */
   check?: (input: CheckInput) => CheckResult | Promise<CheckResult>;
   /** Called when the gate asks. Show `action` to the human; return the token from `host.approve`, or null for no. */
   onApproval?: (request: ApprovalRequest) => Promise<string | null>;
@@ -183,6 +183,7 @@ export function createLoop(options: LoopOptions): Loop {
     /** Runs one tool call. Returns a stop event, or undefined to go on. */
     async function* call(id: string, name: string, raw: string): AsyncGenerator<LoopEvent, LoopEvent | undefined, undefined> {
       const fail = (reason: ResultReason, summary: string): LoopEvent => {
+        lastCheck = undefined;
         messages.push({ role: "tool", tool_call_id: id, content: resultText(name, { ok: false, summary }, nonce) });
         return { type: "tool-result", step, id, name, ok: false, summary, reason };
       };
@@ -226,7 +227,7 @@ export function createLoop(options: LoopOptions): Loop {
       if (ran === ABORTED) return { type: "aborted", step };
       if (ran.error !== undefined) return yield* failed(fail("tool-error", ran.error));
       const output: ToolOutput = ran.value;
-      if (output.check) lastCheck = output.check;
+      lastCheck = output.check;
       messages.push({ role: "tool", tool_call_id: id, content: resultText(name, output, nonce) });
       const result: LoopEvent = { type: "tool-result", step, id, name, ok: output.ok, summary: output.summary.slice(0, LIMITS.summary), ...(output.ok ? {} : { reason: "failed" as const }), data: output.data };
       return yield* failed(result);
