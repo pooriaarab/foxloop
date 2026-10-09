@@ -1,6 +1,6 @@
 {
   "name": "foxloop",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The agent loop: plan, call a tool through a gate, check the result, repeat.",
   "type": "module",
   "license": "MIT",
@@ -28,9 +28,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "oxlint --deny-warnings",
     "test": "vitest run --passWithNoTests",
-    "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext",
+    "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext && pnpm check:amo",
     "build:ext": "node scripts/build-ext.mjs",
     "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors --ignore-files browser-model.js 'ort/*'",
+    "check:amo": "node scripts/amo-listing.mjs check",
     "e2e": "pnpm build:ext && node e2e/run.mjs",
     "e2e:ollama": "pnpm build && node e2e/ollama.mjs"
   },

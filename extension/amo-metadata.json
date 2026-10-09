@@ -1,0 +1,21 @@
+{
+  "default_locale": "en-US",
+  "slug": "foxloop",
+  "name": { "en-US": "foxloop — an AI agent loop with approvals" },
+  "summary": {
+    "en-US": "Give an AI planner a goal for the current tab. It plans, calls a tool through a gate, checks the result and repeats. You approve each step that can send a form. By default no model is used; local models stay on your computer."
+  },
+  "description": {
+    "en-US": "foxloop is the agent loop of the fox libraries: plan, call a tool through a gate, check the result, repeat. This add-on shows the loop at work in a sidebar.\n\n**Who it is for:** developers who build browser agents and want to see each plan, gate decision and approval of a run.\n\n**What it does**\n\n- You type a goal for the current tab and click Run.\n- A planner picks tools: read the page, fill fields, click, open an address, or do a form task.\n- foxgate checks each call. Calls that can send a form wait for your Approve or Deny in the sidebar.\n- The sidebar shows each plan, decision, result and the final check. A tamper-evident log (foxtrail) of the run stays in memory.\n- The grants of a run cover the host of that tab only, and end with the run.\n\n**Planners**\n\n- Scripted (the default): replays a list of tool calls. No model.\n- Ollama, llama-server or Underdog Saluki 27B on your computer. foxloop refuses Ollama model names that end in -cloud.\n- A small model (Qwen3-0.6B) in the browser.\n- Your own key for an OpenAI-compatible API or for Anthropic.\n\n**What leaves your computer, and when**\n\n- With the scripted, local or in-browser planners, page text stays on your computer.\n- With your own key, the goal, the page text and the tool results go to the provider that you chose. This happens only after you tick \"Send page text to this provider\" and Firefox's data consent says yes. The key stays in session storage and is gone when Firefox closes.\n- The in-browser model downloads its files from Hugging Face once. These requests hold no page text.\n- foxloop has no server and sends nothing to its authors.\n\n**Permissions**\n\n- Access to all websites and scripting: read and act on the tab that you give a goal to.\n- Storage and unlimited storage: settings and the in-browser model files stay in your browser.\n\nThe source code is MIT licensed."
+  },
+  "categories": { "firefox": ["web-development"] },
+  "homepage": { "en-US": "https://github.com/pooriaarab/foxloop" },
+  "support_url": { "en-US": "https://github.com/pooriaarab/foxloop/issues" },
+  "version": {
+    "license": "MIT",
+    "approval_notes": "The uploaded source.zip is the git tree of this release. To build: install Node 24 and pnpm 11 (corepack enable), run `pnpm install --frozen-lockfile`, then `pnpm build:ext`. The output is dist-ext/. esbuild bundles extension/*.js with src/ and the fox npm packages; ONNX Runtime's WASM files are copied unmodified to dist-ext/ort/. To try it without a model: click the toolbar button, keep the Scripted planner, open any page with a form, type a goal and click Run. Approve or Deny each step in the sidebar. No account is needed."
+  },
+  "privacy_policy": {
+    "en-US": "foxloop has no server. It sends nothing to its authors and has no analytics.\n\nSettings stay in this browser. The log of runs stays in memory and is gone when Firefox unloads the add-on's background page.\n\nData leaves your computer only in this case, and it is off until you turn it on:\n\nOwn model key. If you choose an OpenAI-compatible provider or Anthropic, add your key, tick \"Send page text to this provider\" and accept Firefox's data consent, foxloop sends your goal, the text of the page it works on and the results of its tools to that provider. The provider's own privacy policy applies to that data. The key stays in session storage and is gone when Firefox closes.\n\nThe in-browser model downloads its files from Hugging Face. These requests do not hold your data."
+  }
+}
