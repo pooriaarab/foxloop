@@ -31,7 +31,8 @@
     "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext",
     "build:ext": "node scripts/build-ext.mjs",
     "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors --ignore-files browser-model.js 'ort/*'",
-    "e2e": "pnpm build:ext && node e2e/run.mjs"
+    "e2e": "pnpm build:ext && node e2e/run.mjs",
+    "e2e:ollama": "pnpm build && node e2e/ollama.mjs"
   },
   "devDependencies": {
     "@huggingface/transformers": "^4.3.1",
