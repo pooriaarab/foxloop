@@ -56,6 +56,7 @@ or `aborted`. No tool runs after a stop.
 | G7 | `onApproval` throws. | The run stops with `blocked` `approval-error`. Nothing runs. | Isolated `tests/approval.test.ts` |
 | G8 | `gate.check` or `gate.redeem` throws. | The run stops with `blocked` `gate-error`. Nothing runs. | Isolated `tests/approval.test.ts` |
 | G10 | The approval shows only an opaque argument, such as `controlId: "0:1"`. The human cannot tell what they approve. | A tool can have `describe(args)`. Its text goes into `approval-needed` and the `onApproval` request as `detail`. The browser tools name the control's role and label and the page address. If `describe` throws, the run stops with `approval-error` and nothing runs. | Isolated `tests/approval.test.ts`, `tests/browser.test.ts`, E2E `injected send is refused` |
+| G11 | The approval for `browser_task` shows only `{ goal }`. The human cannot tell that it covers many fields and clicks, and a send, on one page. | `browser_task` describes the page address, the goal, and that foxpaw picks each field and click and may send the form. | Isolated `tests/browser.test.ts` |
 | G9 | The tool's `domain` function throws (for example `open_url` gets `javascript:`). | Nothing runs and the gate does not see it. The result is `invalid-args`. | Isolated `tests/approval.test.ts`, `tests/browser.test.ts` |
 
 ## Audit trail
