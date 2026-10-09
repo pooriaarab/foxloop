@@ -244,8 +244,8 @@ export function createLoop(options: LoopOptions): Loop {
       yield { type: "check", step, ok: check.ok, checks: check.checks, ...(check.problem ? { problem: check.problem } : {}) };
       if (check.ok) return { type: "done", step, summary, check };
       checkFails++;
-      const text = `The check failed: ${failedChecks(check)}. Fix it, then call finish again.`;
-      messages.push(id ? { role: "tool", tool_call_id: id, content: resultText(FINISH, { ok: false, summary: text }, nonce) } : { role: "user", content: text });
+      const feedback = resultText(FINISH, { ok: false, summary: "The check failed. Fix it, then call finish again.", untrusted: failedChecks(check) }, nonce);
+      messages.push(id ? { role: "tool", tool_call_id: id, content: feedback } : { role: "user", content: feedback });
       return checkFails >= CHECK_LIMIT ? blocked("check-failed", failedChecks(check)) : undefined;
     }
 
