@@ -14,6 +14,8 @@ const tool = (over: Partial<LoopTool> = {}): LoopTool => ({
   ...over,
 });
 
+const amount = (args: Record<string, unknown>) => ({ value: Number(args.total), currency: "USD" });
+
 const code = (fn: () => unknown) => {
   try {
     fn();
@@ -63,7 +65,6 @@ describe("R3: scopes", () => {
   });
 
   it("gives foxgate the same scope and amount function", async () => {
-    const amount = (args: Record<string, unknown>) => ({ value: Number(args.total), currency: "USD" });
     const checkout = tool({
       name: "checkout",
       scope: "pay",
