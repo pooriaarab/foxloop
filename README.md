@@ -285,7 +285,9 @@ sidebar shows each plan, gate decision, approval (with **Approve** and
 
 - **Scripted (no model)** replays a JSON list of tool calls.
 - **Ollama**, **llama-server** and **Underdog Saluki 27B** run on your
-  computer. They use foxmind's private mode, `only: ["browser", "local"]`.
+  computer. They use foxmind's private mode, `only: ["browser", "local"]`,
+  and refuse Ollama model names that end in `-cloud`, which run on Ollama's
+  servers.
 - **Your own key** sends page text to an OpenAI-compatible API or to
   Anthropic, after you allow it. The key stays in `storage.session`.
 - **In-browser small model** runs Qwen3-0.6B in the extension.
@@ -306,7 +308,7 @@ The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
 Our run on 2026-10-09 (Firefox 157.0.1, Apple M3 Pro, headless) passed all
-17 checks:
+18 checks:
 
 | Check | Result |
 |---|---|
@@ -314,6 +316,7 @@ Our run on 2026-10-09 (Firefox 157.0.1, Apple M3 Pro, headless) passed all
 | An injection page asks the planner to open `http://localhost:<port>/collect.html?email=...` | The gate denied it (`no-grant`); the tab did not move |
 | The same page asks the planner to click "Send my details to our partner" | The approval named the button; the human denied it; nothing was sent |
 | A cloud planner without consent: the box is clear, or Firefox's data consent is not granted | The run stopped before any page text left |
+| The Ollama planner with `gpt-oss:120b-cloud` | Refused before any model call: the model runs on Ollama's servers |
 | The Ollama planner from the extension | `model-error`: Ollama refused the `moz-extension:` origin |
 
 `pnpm e2e:ollama` runs one task three times in Node with Ollama and

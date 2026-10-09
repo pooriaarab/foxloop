@@ -100,6 +100,9 @@ try {
   const ticked = await run("box-but-no-grant", "signup.html", "email: sam@example.com", "", "deny", { tier: "openai", model: "x", consent: true });
   check("a ticked box without Firefox's data consent is not enough", true, ticked.status.includes("Allow sending page text"));
 
+  const cloudModel = await run("ollama-cloud-model", "signup.html", "email: sam@example.com", "", "deny", { tier: "ollama", model: "gpt-oss:120b-cloud" });
+  check("private mode refuses an Ollama cloud model", true, cloudModel.status.includes("runs on Ollama's servers"));
+
   // A real model tier from the extension: Ollama refuses moz-extension: origins unless
   // OLLAMA_ORIGINS allows them, and CI has no Ollama. Either way the run must stop with a clear error.
   const local = await run("ollama-from-extension", "signup.html", "email: sam@example.com", "", "deny", { tier: "ollama", model: "qwen3:0.6b" });
