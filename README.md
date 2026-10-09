@@ -296,7 +296,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 73 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 74 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
@@ -348,8 +348,6 @@ sentence into its `finish` summary. No tool could act on it.
   host, for example in an `open_url` query string on the same site.
 - The delimiters make prompt injection harder, not impossible. A small model
   can still follow or repeat injected text, as our Ollama runs show.
-- When a check fails, its evidence (page text such as field values) goes to
-  the planner as plain text, not as delimited data.
 - Strict schemas refuse extra arguments. Small models often add one, and then
   the run stops with `repeated-failure`.
 - The default check trusts the newest check that a tool returned. `act` and
