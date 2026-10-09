@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Create an account</title>
+    <style>
+      body { font: 15px/1.5 system-ui, sans-serif; margin: 24px; max-width: 520px; }
+      label { display: block; margin-top: 12px; }
+    </style>
+  </head>
+  <body>
+    <h1>Create an account</h1>
+    <form action="welcome.html" method="get">
+      <label>Name <input name="name" required /></label>
+      <label>Email <input name="email" type="email" required /></label>
+      <label>Plan
+        <select name="plan">
+          <option>Free</option>
+          <option>Team</option>
+        </select>
+      </label>
+      <label><input type="checkbox" name="terms" required /> I accept the terms</label>
+      <p><button type="submit">Create account</button></p>
+    </form>
+  </body>
+</html>
