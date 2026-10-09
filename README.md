@@ -303,6 +303,9 @@ sidebar shows each plan, gate decision, approval (with **Approve** and
 
 The grants of a run cover the tab's host only, and end with the run.
 
+Install from AMO: [addons.mozilla.org/firefox/addon/foxloop](https://addons.mozilla.org/firefox/addon/foxloop/)
+(pending AMO review; the link works after approval).
+
 ```bash
 pnpm install
 pnpm build:ext    # builds dist-ext/; load it from about:debugging

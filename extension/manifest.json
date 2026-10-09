@@ -1,8 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "foxloop demo",
-  "version": "0.1.1",
+  "name": "foxloop — an AI agent loop with approvals",
+  "version": "0.1.2",
   "description": "The agent loop: plan, call a tool through a gate, check the result, repeat.",
+  "icons": { "48": "icons/icon-48.png", "96": "icons/icon-96.png", "128": "icons/icon-128.png" },
   "browser_specific_settings": {
     "gecko": {
       "id": "foxloop@pooriaarab",
@@ -20,14 +21,16 @@
     "type": "module"
   },
   "action": {
-    "default_title": "foxloop demo"
+    "default_title": "foxloop",
+    "default_icon": { "48": "icons/icon-48.png", "96": "icons/icon-96.png" }
   },
   "content_security_policy": {
     "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "sidebar_action": {
-    "default_title": "foxloop demo",
+    "default_title": "foxloop",
     "default_panel": "sidebar.html",
+    "default_icon": { "48": "icons/icon-48.png", "96": "icons/icon-96.png" },
     "open_at_install": false
   }
 }

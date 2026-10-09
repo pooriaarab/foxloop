@@ -24,7 +24,8 @@ await build({
   target: "firefox153",
   logLevel: "warning",
 });
-for (const file of files.filter((f) => !f.endsWith(".js"))) cpSync(`extension/${file}`, `dist-ext/${file}`, { recursive: true });
+// amo-metadata.json is the AMO listing, not a part of the add-on.
+for (const file of files.filter((f) => !f.endsWith(".js") && f !== "amo-metadata.json")) cpSync(`extension/${file}`, `dist-ext/${file}`, { recursive: true });
 // ONNX Runtime's WASM files for the in-browser model go to dist-ext/ort/
 // (foxmind's default path), because MV3 allows no remote code.
 const ort = join(dirname(dirname(realpathSync("node_modules/@huggingface/transformers"))), "onnxruntime-web", "dist");
