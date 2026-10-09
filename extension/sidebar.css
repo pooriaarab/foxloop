@@ -21,3 +21,4 @@ details { margin-top: 12px; }
 .inline { display: flex; gap: 6px; align-items: center; font-weight: normal; }
 .inline input { width: auto; }
 #settings > div { margin-top: 8px; }
+li .detail { margin: 6px 0 2px; font-weight: 600; }

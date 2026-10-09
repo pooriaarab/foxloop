@@ -28,6 +28,7 @@ export function defineTools(tools: readonly LoopTool[]): ReadonlyMap<string, Loo
     if (tool.amount !== undefined && typeof tool.amount !== "function") bad("amount must be a function");
     if (typeof tool.domain !== "function") bad("needs a domain function");
     if (typeof tool.run !== "function") bad("needs a run function");
+    if (tool.describe !== undefined && typeof tool.describe !== "function") bad("describe must be a function");
     assertSchema(tool.parameters, `${tool.name}.parameters`);
     if (tool.parameters.type !== "object") throw new FoxloopError("bad-schema", `${tool.name}.parameters: the type must be "object"`);
     byName.set(tool.name, tool);
