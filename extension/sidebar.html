@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>foxloop demo</title>
+    <link rel="stylesheet" href="sidebar.css" />
+  </head>
+  <body>
+    <h1>foxloop</h1>
+    <form id="goal-form">
+      <label for="goal">Goal for the current tab</label>
+      <textarea id="goal" rows="3" required>name: Sam Lee, email: sam@example.com, plan Team, accept the terms</textarea>
+      <div class="row">
+        <button id="run" type="submit">Run</button>
+        <button id="stop" type="button" disabled>Stop</button>
+      </div>
+    </form>
+    <p id="status" role="status">Type a goal, then click Run.</p>
+    <ol id="events"></ol>
+    <script type="module" src="sidebar.js"></script>
+  </body>
+</html>
