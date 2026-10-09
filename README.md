@@ -154,7 +154,8 @@ flowchart TD
    foxgate judged.
 6. The result goes back as a short summary. Page text goes in a separate block
    between delimiters with a random nonce, and the prompt says that this text
-   is data.
+   is data. foxloop escapes every `<` and `>` in outside text, so it cannot
+   form a delimiter, and it refuses tool arguments that hold the nonce.
 7. When the planner calls `finish`, the check runs. By default, the newest
    tool result must carry a passing check. A later result with no check, a
    failed result or an error clears it. `browser_task` returns foxpaw's check.
@@ -297,7 +298,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 79 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 81 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.

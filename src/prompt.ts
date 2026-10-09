@@ -37,8 +37,8 @@ export function plannerPrompt(nonce: string): string {
   ].join("\n");
 }
 
-/** Removes delimiter markers, so outside text cannot open or close a data block. */
-const unmark = (text: string) => text.replace(/<<<|>>>/g, "");
+/** Escapes every angle bracket, so outside text can never form a delimiter marker. */
+const unmark = (text: string) => text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
 const cut = (text: string, max: number) => (text.length > max ? `${text.slice(0, max)} [cut]` : text);
 
