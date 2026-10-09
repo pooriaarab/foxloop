@@ -169,6 +169,10 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: { goal: { type: "string", minLength: 1, maxLength: 1000 } }, required: ["goal"] },
       scope: "submit",
       domain: tabDomain,
+      describe: async (args) => {
+        const tab = await api().tabs.get(await options.tabId());
+        return `let foxpaw fill the form on ${tab.url} for the goal "${String(args.goal)}". foxpaw picks each field and click itself and may send the form. This one approval covers all of them.`;
+      },
       run: async (args, ctx: ToolContext) => {
         const refused = await moved(ctx);
         if (refused) return refused;

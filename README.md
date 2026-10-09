@@ -110,7 +110,7 @@ async function run(tab, goal, mind, askHuman) {
 | Who | What they build | How foxloop helps |
 |---|---|---|
 | People who want a personal browser agent (for example foxmate) | An agent that does tasks in their own Firefox, with their own logins | The loop plans with a local or own-key model, acts through foxpaw, and stops for a human before a form is sent. |
-| Teams that automate forms | A tool that fills job, travel or support forms from saved data | `browser_task` fills and sends the form with foxpaw, and foxpaw's check must pass before the run is `done`. Each send waits for one approval of the exact action. |
+| Teams that automate forms | A tool that fills job, travel or support forms from saved data | `browser_task` fills and sends the form with foxpaw, and foxpaw's check must pass before the run is `done`. The human approves the whole task once, after reading the page address and the goal. foxpaw then picks each field and click itself. |
 | QA engineers | A test agent that walks a staging site and reports what broke | Grants keep the agent on the staging hosts. The trail and the event stream show each step, and a failed check stops the run with a reason. |
 | Builders of research assistants | An assistant that reads pages and saves notes | Page text reaches the model only as delimited data. Read and note tools run on grants with no approval. A tool that sends anything needs one. |
 | Developers who build their own agent on the fox primitives | A custom agent with its own tools, outside the browser too | Tools are plain objects with a JSON Schema. The loop works with any `chat` that returns OpenAI-shaped tool calls, and with any gate that has `check` and `redeem`. |
@@ -298,7 +298,7 @@ pnpm e2e:ollama   # one real task with Ollama, when Ollama runs
 
 ## Tests
 
-`pnpm ci:local` runs lint, typecheck, 81 tests, the build and `web-ext lint`.
+`pnpm ci:local` runs lint, typecheck, 82 tests, the build and `web-ext lint`.
 The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
@@ -357,8 +357,10 @@ sentence into its `finish` summary. No tool could act on it.
   them cannot pass. For flows built from them, pass your own `check`.
 - The loop keeps its state in memory. When Firefox unloads the background
   page, a run ends. An open sidebar keeps the page loaded.
-- `browser_task` and `click` can send forms. foxgate asks a human for each
-  one by default, so a long task needs several approvals.
+- `browser_task` and `click` can send forms, so foxgate asks a human for each
+  call by default. One `browser_task` approval covers every field and click
+  that foxpaw makes in that task, not each one. foxpaw chooses them from the
+  goal; the human approves the goal and the page, not the clicks.
 - The demo's own-key planner uses foxmind's `only: ["cloud"]`. A localhost
   address in that planner fails; use the Ollama or llama-server choice.
 - We did not run Saluki 27B, a cloud key, or the in-browser model in the E2E

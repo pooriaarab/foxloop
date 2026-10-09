@@ -148,6 +148,13 @@ describe("G10: approvals name the control", () => {
     expect(await tool("act").describe?.({ controlId: "0:1", op: "type", value: "sam@example.com" }, ctx)).toBe('type "sam@example.com" into the textbox "Email" on https://shop.example/signup');
   });
 
+  it("G11: describes browser_task as one approval for the whole form on this page", async () => {
+    const { tool } = fakes([]);
+    expect(await tool("browser_task").describe?.({ goal: "email: sam@example.com, sign up" }, ctx)).toBe(
+      'let foxpaw fill the form on https://shop.example/signup for the goal "email: sam@example.com, sign up". foxpaw picks each field and click itself and may send the form. This one approval covers all of them.',
+    );
+  });
+
   it("refuses to describe a control it cannot name", async () => {
     const { tool } = fakes([page([control(1, "Email")])]);
     await expect(Promise.resolve().then(() => tool("click").describe?.({ controlId: "0:1" }, ctx))).rejects.toThrow(/snapshot/);
