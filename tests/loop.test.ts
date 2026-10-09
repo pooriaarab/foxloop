@@ -7,6 +7,7 @@ import { collect, gateFor, last, noteTool, ofType } from "./helpers.js";
 const ok = { ok: true, checks: [{ part: "note", ok: true, evidence: "saved" }] };
 const checked = () => noteTool(() => ({ ok: true, summary: "saved", check: ok }));
 const save = (text: unknown) => ({ calls: [{ name: "save_note", args: { text } }] });
+const unknown = (name: string) => ({ calls: [{ name, args: {} }] });
 const finish = { calls: [{ name: "finish", args: { summary: "done" } }] };
 
 async function setup(tools: LoopTool[], steps: Parameters<typeof scriptedMind>[0], options: { maxSteps?: number } = {}) {
@@ -50,10 +51,10 @@ describe("R4-R7: model arguments and tools", () => {
 
   it("R7: code from the model is never run", async () => {
     const note = checked();
-    const code = "globalThis.__foxloopPwned = true";
+    const code = "globalThis.foxloopPwned = true";
     const { loop } = await setup([note.tool], [{ calls: [{ name: "run_code", args: { code } }] }, { calls: [{ name: "eval", args: code }] }, save("hi"), finish]);
     await collect(loop.run("Save hi."));
-    expect((globalThis as Record<string, unknown>).__foxloopPwned).toBeUndefined();
+    expect((globalThis as Record<string, unknown>).foxloopPwned).toBeUndefined();
   });
 });
 
@@ -78,7 +79,6 @@ describe("L1-L6: stops", () => {
 
   it("L3: stops after 3 failed results in a row", async () => {
     const note = noteTool();
-    const unknown = (name: string) => ({ calls: [{ name, args: {} }] });
     const { loop } = await setup([note.tool], [unknown("a"), unknown("b"), unknown("c"), save("x")]);
     const events = await collect(loop.run("Save x."));
     expect(last(events)).toMatchObject({ type: "blocked", reason: "repeated-failure" });
