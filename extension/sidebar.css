@@ -1,0 +1,24 @@
+:root { color-scheme: light dark; --line: #8884; --ok: #1a7f37; --bad: #c62828; --ask: #b26a00; }
+body { font: 13px/1.45 system-ui, sans-serif; margin: 12px; }
+h1 { font-size: 16px; margin: 0 0 8px; }
+label { display: block; font-weight: 600; margin-bottom: 4px; }
+textarea, input, select { box-sizing: border-box; width: 100%; font: inherit; }
+.row { display: flex; gap: 8px; margin-top: 8px; }
+button { font: inherit; padding: 4px 12px; }
+#status { margin: 10px 0; }
+#status.done { color: var(--ok); font-weight: 600; }
+#status.bad { color: var(--bad); font-weight: 600; }
+ol { padding-left: 20px; margin: 0; }
+li { border-bottom: 1px solid var(--line); padding: 6px 0; overflow-wrap: anywhere; }
+li .kind { font-weight: 600; margin-right: 4px; }
+li.ok .kind { color: var(--ok); }
+li.bad .kind { color: var(--bad); }
+li.ask { border: 2px solid var(--ask); border-radius: 6px; padding: 8px; }
+li.ask .kind { color: var(--ask); }
+pre { white-space: pre-wrap; margin: 4px 0; font-size: 12px; background: #8881; padding: 6px; border-radius: 4px; }
+details { margin-top: 12px; }
+.hint { color: #888; margin: 4px 0; }
+.inline { display: flex; gap: 6px; align-items: center; font-weight: normal; }
+.inline input { width: auto; }
+#settings > div { margin-top: 8px; }
+li .detail { margin: 6px 0 2px; font-weight: 600; }
