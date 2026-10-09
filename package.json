@@ -30,13 +30,15 @@
     "test": "vitest run --passWithNoTests",
     "ci:local": "pnpm lint && pnpm typecheck && pnpm test && pnpm build && pnpm build:ext && pnpm lint:ext",
     "build:ext": "node scripts/build-ext.mjs",
-    "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors",
+    "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors --ignore-files browser-model.js 'ort/*'",
     "e2e": "pnpm build:ext && node e2e/run.mjs"
   },
   "devDependencies": {
+    "@huggingface/transformers": "^4.3.1",
     "@types/node": "^24.19.1",
     "create-foxkit": "^0.1.0",
     "esbuild": "^0.28.2",
+    "foxmind": "^0.1.0",
     "foxtrail": "^0.1.0",
     "oxlint": "^1.87.0",
     "typescript": "^7.0.2",

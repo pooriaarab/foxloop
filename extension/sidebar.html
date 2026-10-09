@@ -15,6 +15,19 @@
         <button id="stop" type="button" disabled>Stop</button>
       </div>
     </form>
+    <details id="settings">
+      <summary>Planner: <span id="tier-name"></span></summary>
+      <label for="tier">Model</label>
+      <select id="tier"></select>
+      <p id="hint" class="hint"></p>
+      <div data-for="ollama llama-server openai anthropic"><label for="model">Model name</label><input id="model" /></div>
+      <div data-for="openai"><label for="base-url">Base URL</label><input id="base-url" /></div>
+      <div data-for="openai anthropic">
+        <label for="api-key">API key (kept until Firefox closes)</label><input id="api-key" type="password" autocomplete="off" />
+        <label class="inline"><input id="consent" type="checkbox" /> Send page text to this provider</label>
+      </div>
+      <div data-for="scripted"><label for="script">Script (JSON tool calls)</label><textarea id="script" rows="6"></textarea></div>
+    </details>
     <p id="status" role="status">Type a goal, then click Run.</p>
     <ol id="events"></ol>
     <script type="module" src="sidebar.js"></script>

@@ -20,9 +20,12 @@ try {
   const sidebar = await fox.openExtensionPage("sidebar.html");
 
   /** Saves the script, starts a goal on the tab at `path`, and answers each approval with `answer`. */
-  async function run(name, path, goal, script, answer) {
+  async function run(name, path, goal, script, answer, settings = { tier: "scripted", script: script ?? "" }) {
     const page = await fox.open(`${site.url}/${path}`);
-    await sidebar.evaluate(async (s) => browser.storage.local.set({ settings: { tier: "scripted", script: s } }), script ?? "");
+    await sidebar.evaluate(async (s) => {
+      await browser.storage.local.set({ settings: s });
+      await window.foxloopDemo.loadSettings();
+    }, settings);
     const before = (await sidebar.evaluate(() => browser.runtime.sendMessage({ op: "trail" }))).entries.length;
     await sidebar.evaluate(async (url, g) => window.foxloopDemo.start(await window.foxloopDemo.tabFor(url), g), `${site.url}/${path}`, goal);
     const approvals = [];
@@ -56,8 +59,30 @@ try {
   check("trail has the approval, both decisions and the stop", true,
     ["loop.approval-needed", "loop.decision", "loop.tool-result", "loop.done"].every((k) => e1.kinds.includes(k)) && e1.kinds.filter((k) => k === "loop.decision").length === 3);
   check("trail verifies", true, e1.trailVerify.ok);
+
+  // Settings: every planner tier is offered, and each shows only its fields.
+  await sidebar.evaluate(() => location.reload());
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const tiers = await poll(sidebar, () => document.querySelectorAll("#tier option").length && [...document.querySelectorAll("#tier option")].map((o) => o.value));
+  check("settings offer every planner tier", ["scripted", "ollama", "llama-server", "saluki", "openai", "anthropic", "browser"], tiers);
+  const fields = await sidebar.evaluate(() => {
+    const tier = document.getElementById("tier");
+    tier.value = "openai";
+    tier.dispatchEvent(new Event("change", { bubbles: true }));
+    return [...document.querySelectorAll("[data-for]")].filter((d) => !d.hidden).map((d) => d.querySelector("input, textarea").id);
+  });
+  check("the own-key tier shows model, base URL and key", ["model", "base-url", "api-key"], fields);
+  const cloud = await run("no-consent", "signup.html", "email: sam@example.com", "", "deny", { tier: "openai", model: "x", consent: false });
+  check("a cloud tier needs consent before page text leaves", true, cloud.status.includes("Allow sending page text"));
+
+  // A real model tier from the extension: Ollama refuses moz-extension: origins unless
+  // OLLAMA_ORIGINS allows them, and CI has no Ollama. Either way the run must stop with a clear error.
+  const local = await run("ollama-from-extension", "signup.html", "email: sam@example.com", "", "deny", { tier: "ollama", model: "qwen3:0.6b" });
+  check("a model tier that cannot answer stops with model-error", true, local.status.startsWith("Blocked (model-error)"));
 } catch (error) {
   record.error = error instanceof Error ? error.message : String(error);
+  const pages = await fox?.browser.pages().catch(() => []);
+  record.sidebarAtError = await pages?.find((p) => p.url().endsWith("sidebar.html"))?.evaluate(() => document.body.innerText).catch(() => undefined);
 } finally {
   await fox?.close();
   await site.close();
