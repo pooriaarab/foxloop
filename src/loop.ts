@@ -172,8 +172,15 @@ export function createLoop(options: LoopOptions): Loop {
     const started = now();
     let [tokens, runs] = [0, 0];
     /** Resolves with ABORTED when the run is aborted, so a call that ignores the signal cannot hold the run. */
-    const race = <T>(work: Promise<T>): Promise<T | typeof ABORTED> =>
-      signal.aborted ? Promise.resolve(ABORTED) : Promise.race([work, new Promise<typeof ABORTED>((resolve) => signal.addEventListener("abort", () => resolve(ABORTED), { once: true }))]);
+    const race = <T>(work: Promise<T>): Promise<T | typeof ABORTED> => {
+      if (signal.aborted) return Promise.resolve(ABORTED);
+      const listener: { stop?: () => void } = {};
+      const aborted = new Promise<typeof ABORTED>((resolve) => {
+        listener.stop = () => resolve(ABORTED);
+        signal.addEventListener("abort", listener.stop, { once: true });
+      });
+      return Promise.race([work, aborted]).finally(() => listener.stop && signal.removeEventListener("abort", listener.stop));
+    };
     const nonce = newNonce();
     const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce) }, { role: "user", content: `Goal: ${goal}` }];
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
@@ -199,6 +206,7 @@ export function createLoop(options: LoopOptions): Loop {
       const domain = await attempt(async () => tool.domain(args as Record<string, unknown>, ctx));
       if (domain.error !== undefined) return yield* failed(fail("invalid-args", domain.error));
       const action: Action = { tool: name, args: args as Record<string, unknown>, domain: domain.value, scope: tool.scope };
+      if (options.budget?.toolCalls !== undefined && runs >= options.budget.toolCalls) return blocked("budget", `the run used its ${options.budget.toolCalls} tool calls`);
       const checked = await attempt(() => options.gate.check(action));
       if (checked.error !== undefined) return blocked("gate-error", checked.error);
       let decision = checked.value;
@@ -221,12 +229,16 @@ export function createLoop(options: LoopOptions): Loop {
         yield { type: "decision", step, id, via: "redeem", decision: decision.decision, ...(decision.decision === "deny" ? { reason: decision.reason } : {}), action };
         if (decision.decision !== "allow") return blocked("gate-deny", decision.decision === "deny" ? `${decision.reason}: ${decision.message}` : "the gate asked again");
       }
-      if (options.budget?.toolCalls !== undefined && runs >= options.budget.toolCalls) return blocked("budget", `the run used its ${options.budget.toolCalls} tool calls`);
       runs++;
       if (decision.action.tool !== name) return blocked("gate-mismatch", `the gate allowed "${decision.action.tool}", not "${name}"`);
       const judged = decision.action;
-      const ran = await race(attempt(() => tool.run(judged.args, { ...ctx, domain: judged.domain })));
-      if (ran === ABORTED) return { type: "aborted", step };
+      const work = attempt(() => tool.run(judged.args, { ...ctx, domain: judged.domain }));
+      const ran = await race(work);
+      if (ran === ABORTED) {
+        // The tool may still act. When it ends, its result goes to the trail, so the action is not lost.
+        void work.then((late) => options.trail?.append({ actor: "foxloop", kind: "loop.late-result", data: { step, id, name, ok: late.value?.ok ?? false, summary: late.value?.summary ?? `error: ${late.error}` } })).catch(() => undefined);
+        return { type: "aborted", step };
+      }
       if (ran.error !== undefined) return yield* failed(fail("tool-error", "The tool threw an error. Its message is below.", ran.error));
       const output: ToolOutput = ran.value;
       lastCheck = output.check;

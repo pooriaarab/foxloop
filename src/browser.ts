@@ -89,12 +89,14 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     if (!found) throw new Error(`No control has the id "${String(args.controlId)}" in the last snapshot.`);
     return { control: found, url: page.url };
   };
-  const operate = async (args: Record<string, unknown>, request: ActRequest): Promise<ToolOutput> => {
+  const operate = async (args: Record<string, unknown>, request: ActRequest, signal: AbortSignal): Promise<ToolOutput> => {
+    if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const tabId = await options.tabId();
     const page = last?.page;
     const found = await named(args).catch((error: Error) => error.message);
     if (typeof found === "string" || !page) return { ok: false, summary: `${found} Call snapshot to read the page.` };
     const { control } = found;
+    if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const result = await paw.act(tabId, control, request, page, api());
     if (!result.ok) {
       last = undefined;
@@ -127,7 +129,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: { ...control, op: { type: "string", enum: [...OPS] }, value: { type: "string", maxLength: 2000 } }, required: ["controlId", "op"] },
       scope: "fill",
       domain: tabDomain,
-      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }),
+      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: args.op as ActRequest["op"], ...(typeof args.value === "string" ? { value: args.value } : {}) }, ctx.signal),
       describe: async (args) => {
         const { control: c, url } = await named(args);
         const value = typeof args.value === "string" ? ` "${args.value}"` : "";
@@ -140,7 +142,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: control, required: ["controlId"] },
       scope: "submit",
       domain: tabDomain,
-      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: "click" }),
+      run: async (args, ctx: ToolContext) => (await moved(ctx)) ?? operate(args, { op: "click" }, ctx.signal),
       describe: async (args) => {
         const { control: c, url } = await named(args);
         return `click the ${c.role} "${c.label}"${c.submit ? " (sends its form)" : ""} on ${url}`;

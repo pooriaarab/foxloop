@@ -198,6 +198,20 @@ describe("P4: foxpaw's page words stay out of the summary", () => {
   });
 });
 
+describe("L15: act and click honor the abort signal", () => {
+  it("does not act after the signal aborted", async () => {
+    const { tool, calls } = fakes([page([control(1, "Email")])]);
+    await tool("snapshot").run({}, ctx);
+    const aborted = { ...ctx, signal: AbortSignal.abort() };
+    for (const [name, args] of [["click", { controlId: "0:1" }], ["act", { controlId: "0:1", op: "type", value: "x" }]] as const) {
+      const out = await tool(name).run(args, aborted);
+      expect(out.ok).toBe(false);
+      expect(out.summary).toMatch(/aborted/);
+    }
+    expect(calls.filter((c) => c.startsWith("act"))).toEqual([]);
+  });
+});
+
 describe("B6: a big page stays small", () => {
   it("lists at most 40 controls, and puts page words only in the untrusted text", async () => {
     const many = Array.from({ length: 100 }, (_, i) => control(i, `Field ${i}`));
