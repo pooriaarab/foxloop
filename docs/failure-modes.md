@@ -102,3 +102,20 @@ or `aborted`. No tool runs after a stop.
 | E3 | An injection page asks the planner to click a send button. The human denies the approval, and the trail records it. | E2E `injected send is refused` |
 | E5 | The user picks the Ollama planner with a `-cloud` model (for example `gpt-oss:120b-cloud`). Ollama sends it to its own servers, but foxmind marks Ollama as local, so private mode lets page text leave. | The demo refuses a model name that ends in `-cloud` for the local planners, before any model call. | E2E `private mode refuses an Ollama cloud model` |
 | E4 | When Ollama runs with a small tool-calling model, one real task runs. The result is recorded as it is, pass or fail. | `pnpm e2e:ollama` |
+
+## AMO release build and listed submission (`scripts/amo-listing.mjs`)
+
+`pnpm check:amo` reads `dist-ext/`, which is what `release.yml` signs. Each
+row is a way that the listed build or the submission can go wrong.
+
+| ID | Failure | Wanted result |
+|---|---|---|
+| AR1 | `dist-ext/` is missing, so the check reads nothing | The check stops and says to run `pnpm build:ext` |
+| AR2 | A content script in the release manifest matches `127.0.0.1`, `localhost` or `*.localhost` (a test bridge) | The check stops and names the pattern |
+| AR3 | A host permission for a local host exists only for tests | The check stops, unless `local_hosts` in the listing gives a reason for that exact pattern |
+| AR4 | A file named for tests (`e2e`, `fixture`, `test`, `spec`) is in `dist-ext/` | The check stops and names the file |
+| AR5 | `dist-ext/` came from `build-ext.mjs --e2e` | AR2 or AR4 stops it |
+| AR6 | The `local_hosts` reasons go to AMO as an unknown field | `metadata` leaves them out, as it does the privacy policy |
+| AR7 | A re-run submits a version that AMO already has as listed | `version-status` says `listed`, and the step skips web-ext sign and finishes the release |
+| AR8 | AMO has the version as unlisted | `version-status` stops and says to bump the version |
+| AR9 | The AMO version lookup fails (401, 500, network) | `version-status` stops; it never guesses `absent` |
