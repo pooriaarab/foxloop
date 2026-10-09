@@ -1,5 +1,7 @@
 // The one place where the demo picks a planner and talks to foxmind. Each
-// mind has one provider, so a run never moves to another tier in secret.
+// mind has one provider. The local and in-browser planners run in private
+// mode, foxmind's `only: ["browser", "local"]`: foxmind refuses to build a
+// mind whose provider is a cloud one, so page text stays on this computer.
 import { anthropic, createMind, llamaServer, ollama, openaiCompatible, saluki } from "foxmind";
 import { scriptMind } from "./script.js";
 import { TIERS } from "./tiers.js";
@@ -23,5 +25,5 @@ export async function mindFor(settings, goal) {
   const tier = TIERS.find((t) => t.id === settings.tier);
   if (tier?.cloud && !settings.consent) throw new Error("Allow sending page text to this provider in the settings first.");
   const { apiKey } = await browser.storage.session.get("apiKey");
-  return createMind({ providers: [await provider(settings, apiKey)] });
+  return createMind({ providers: [await provider(settings, apiKey)], only: tier?.cloud ? ["cloud"] : ["browser", "local"] });
 }
