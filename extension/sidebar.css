@@ -17,3 +17,7 @@ li.ask { border: 2px solid var(--ask); border-radius: 6px; padding: 8px; }
 li.ask .kind { color: var(--ask); }
 pre { white-space: pre-wrap; margin: 4px 0; font-size: 12px; background: #8881; padding: 6px; border-radius: 4px; }
 details { margin-top: 12px; }
+.hint { color: #888; margin: 4px 0; }
+.inline { display: flex; gap: 6px; align-items: center; font-weight: normal; }
+.inline input { width: auto; }
+#settings > div { margin-top: 8px; }
