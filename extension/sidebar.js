@@ -79,6 +79,7 @@ function end(text, className) {
 /** Runs a goal on a tab in the background page and shows each event. */
 async function start(tabId, goal) {
   const { settings = {} } = await browser.storage.local.get("settings");
+  $("goal").value = goal;
   $("events").replaceChildren();
   $("run").disabled = true;
   $("stop").disabled = false;
