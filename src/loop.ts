@@ -190,6 +190,7 @@ export function createLoop(options: LoopOptions): Loop {
       };
       const args = parse(raw);
       yield { type: "tool-call", step, id, name, args };
+      if (raw.includes(nonce)) return yield* failed(fail("invalid-args", "The arguments hold the data marker. Do not copy markers into arguments."));
       const tool = tools.get(name);
       if (!tool) return yield* failed(fail("unknown-tool", `There is no tool "${name}". Tools: ${defs.map((d) => d.function.name).join(", ")}.`));
       const error = checkArgs(tool.parameters, args);
