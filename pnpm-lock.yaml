@@ -11,6 +11,9 @@ importers:
       foxgate:
         specifier: ^0.1.0
         version: 0.1.0
+      foxpaw:
+        specifier: ^0.1.0
+        version: 0.1.0
     devDependencies:
       '@types/node':
         specifier: ^24.19.1
@@ -1162,6 +1165,10 @@ packages:
 
   foxgate@0.1.0:
     resolution: {integrity: sha512-2LcqcDZ5z9nVCHgG/k22qY688Njy53d6e38+mYVY6VpU70iAKQunIK23NUu8lQif3TSrSCaj3XVHpB+lRhOFzQ==}
+    engines: {node: '>=24'}
+
+  foxpaw@0.1.0:
+    resolution: {integrity: sha512-kYYNAOjK60ExTND4JNGkScfXAvY3Uq0KrYuqRfP2gbbjmgX6FMhwrnFRDVWrZWR81gMZKolcdGxxSKvN3guUbw==}
     engines: {node: '>=24'}
 
   fs-extra@11.4.1:
@@ -2996,6 +3003,8 @@ snapshots:
   flatted@3.4.4: {}
 
   foxgate@0.1.0: {}
+
+  foxpaw@0.1.0: {}
 
   fs-extra@11.4.1:
     dependencies:
