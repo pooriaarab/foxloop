@@ -23,7 +23,8 @@ async function provider(settings, apiKey) {
 export async function mindFor(settings, goal) {
   if (!settings.tier || settings.tier === "scripted") return scriptMind(settings.script, goal);
   const tier = TIERS.find((t) => t.id === settings.tier);
-  if (tier?.cloud && !settings.consent) throw new Error("Allow sending page text to this provider in the settings first.");
+  const granted = tier?.cloud && (await browser.permissions.contains({ data_collection: ["websiteContent"] }));
+  if (tier?.cloud && !(settings.consent && granted)) throw new Error("Allow sending page text to this provider in the settings first.");
   const { apiKey } = await browser.storage.session.get("apiKey");
   return createMind({ providers: [await provider(settings, apiKey)], only: tier?.cloud ? ["cloud"] : ["browser", "local"] });
 }
