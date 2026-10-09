@@ -136,8 +136,8 @@ $("settings").addEventListener("change", saveSettings);
 $("api-key").addEventListener("change", () => browser.storage.session.set({ apiKey: $("api-key").value }));
 $("consent").addEventListener("click", async () => {
   if (!$("consent").checked) return;
-  // Firefox's own consent prompt for page text, where the API exists.
-  const granted = await browser.permissions.request({ data_collection: ["websiteContent"] }).catch(() => true);
+  // Firefox's own consent prompt for page text. An error counts as no.
+  const granted = await browser.permissions.request({ data_collection: ["websiteContent"] }).catch(() => false);
   if (!granted) $("consent").checked = false;
   await saveSettings();
 });

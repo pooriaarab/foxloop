@@ -301,14 +301,14 @@ The tests use a real foxgate and a scripted planner.
 
 `pnpm e2e` runs the demo in Firefox and writes `artifacts/e2e-<date>.json`.
 Our run on 2026-10-09 (Firefox 157.0.1, Apple M3 Pro, headless) passed all
-16 checks:
+17 checks:
 
 | Check | Result |
 |---|---|
 | A sign-up form through foxpaw, with one approval | `done`; foxpaw's check passed; 13 trail entries; the trail verifies |
 | An injection page asks the planner to open `http://localhost:<port>/collect.html?email=...` | The gate denied it (`no-grant`); the tab did not move |
 | The same page asks the planner to click "Send my details to our partner" | The approval named the button; the human denied it; nothing was sent |
-| A cloud planner with no consent | The run stopped before any page text left |
+| A cloud planner without consent: the box is clear, or Firefox's data consent is not granted | The run stopped before any page text left |
 | The Ollama planner from the extension | `model-error`: Ollama refused the `moz-extension:` origin |
 
 `pnpm e2e:ollama` runs one task three times in Node with Ollama and

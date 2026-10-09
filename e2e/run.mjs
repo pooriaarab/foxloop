@@ -97,6 +97,8 @@ try {
   check("the own-key tier shows model, base URL and key", ["model", "base-url", "api-key"], fields);
   const cloud = await run("no-consent", "signup.html", "email: sam@example.com", "", "deny", { tier: "openai", model: "x", consent: false });
   check("a cloud tier needs consent before page text leaves", true, cloud.status.includes("Allow sending page text"));
+  const ticked = await run("box-but-no-grant", "signup.html", "email: sam@example.com", "", "deny", { tier: "openai", model: "x", consent: true });
+  check("a ticked box without Firefox's data consent is not enough", true, ticked.status.includes("Allow sending page text"));
 
   // A real model tier from the extension: Ollama refuses moz-extension: origins unless
   // OLLAMA_ORIGINS allows them, and CI has no Ollama. Either way the run must stop with a clear error.
