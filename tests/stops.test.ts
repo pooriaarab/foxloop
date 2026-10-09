@@ -21,7 +21,7 @@ describe("L7: budget", () => {
   it("counts tokens from the text when the model gives no usage", async () => {
     const note = noteTool();
     const { gate } = await gateFor([note.tool]);
-    const mind = scriptedMind([save("a".repeat(4000)), save("b")]);
+    const mind = scriptedMind([save("a".repeat(8000)), save("b")]);
     const bare = { chat: async (...args: Parameters<typeof mind.chat>) => {
       const { usage: _usage, ...reply } = await mind.chat(...args);
       return reply;

@@ -27,6 +27,10 @@ function sendTool() {
   return { tool, runs };
 }
 
+const throwing = async (): Promise<string> => {
+  throw new Error("the sidebar closed");
+};
+
 async function asking() {
   const s = sendTool();
   const g = await gateFor([s.tool], [{ scope: "submit", domains: [DOMAIN] }]);
@@ -120,10 +124,7 @@ describe("G4-G8: approvals", () => {
 
   it("G7: onApproval that throws stops the run", async () => {
     const { tool, runs, gate } = await asking();
-    const onApproval = async (): Promise<string> => {
-      throw new Error("the sidebar closed");
-    };
-    const events = await collect(createLoop({ mind: scriptedMind([send()]), gate, tools: [tool], onApproval }).run("Send."));
+    const events = await collect(createLoop({ mind: scriptedMind([send()]), gate, tools: [tool], onApproval: throwing }).run("Send."));
     expect(last(events)).toMatchObject({ type: "blocked", reason: "approval-error" });
     expect(runs).toEqual([]);
   });
@@ -148,18 +149,18 @@ describe("G4-G8: approvals", () => {
   });
 });
 
-describe("T1-T3: the trail", () => {
-  const trailOf = (failOn?: string) => {
-    const entries: { actor: string; kind: string; data?: unknown }[] = [];
-    return {
-      entries,
-      append: async (entry: { actor: string; kind: string; data?: unknown }) => {
-        if (entry.kind === failOn) throw new Error("disk full");
-        entries.push(entry);
-      },
-    };
+const trailOf = (failOn?: string) => {
+  const entries: { actor: string; kind: string; data?: unknown }[] = [];
+  return {
+    entries,
+    append: async (entry: { actor: string; kind: string; data?: unknown }) => {
+      if (entry.kind === failOn) throw new Error("disk full");
+      entries.push(entry);
+    },
   };
+};
 
+describe("T1-T3: the trail", () => {
   it("T1: every event goes in, the decision before the tool runs", async () => {
     const { tool, gate, host } = await asking();
     const trail = trailOf();
