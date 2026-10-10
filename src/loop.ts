@@ -30,7 +30,7 @@ export type BlockReason = "max-steps" | "repeated-call" | "repeated-failure" | "
   | "gate-mismatch" | "gate-error" | "approval-denied" | "approval-unavailable" | "approval-error" | "trail-failed" | "budget";
 
 /** Why a tool result failed before or while the tool ran. */
-export type ResultReason = "invalid-args" | "unknown-tool" | "tool-error" | "failed";
+export type ResultReason = "invalid-args" | "unknown-tool" | "tool-error" | "failed" | "gate-deny";
 
 export type LoopEvent =
   | { type: "plan"; step: number; text: string | null; calls: { id: string; name: string; args: string }[]; provider?: string; tier?: string }
@@ -68,6 +68,14 @@ export interface LoopOptions {
   budget?: { tokens?: number; toolCalls?: number; ms?: number };
   /** The clock in ms, for the time budget. Default: Date.now. */
   now?: () => number;
+  /**
+   * Gate denials that go back to the model as a failed result, in place of a
+   * stop. Only a deny at `gate.check` whose foxgate reason `retry` accepts
+   * goes back; a human's no and a deny at `gate.redeem` still stop the run.
+   * The `limit`-th such deny in a row (default 3) stops the run with
+   * `gate-deny`. Default: off, so every deny stops the run (G12-G15).
+   */
+  denials?: { retry: (reason: string) => boolean; limit?: number };
 }
 
 /** What `onApproval` gets. */
@@ -90,6 +98,7 @@ const NOTHING: CheckResult = { ok: false, checks: [{ part: "result", ok: false, 
 const FAIL_LIMIT = 3;
 const REPEAT_LIMIT = 3;
 const CHECK_LIMIT = 2;
+const DENY_LIMIT = 3;
 
 const parse = (raw: string): unknown => {
   try {
@@ -182,8 +191,10 @@ export function createLoop(options: LoopOptions): Loop {
       return Promise.race([work, aborted]).finally(() => listener.stop && signal.removeEventListener("abort", listener.stop));
     };
     const nonce = newNonce();
-    const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce) }, { role: "user", content: `Goal: ${goal}` }];
+    const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce, { denials: Boolean(options.denials) }) }, { role: "user", content: `Goal: ${goal}` }];
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
+    // Gate denials in a row that went back to the model (G12, G13).
+    let denied = 0;
     let lastCheck: CheckResult | undefined;
     const blocked = (reason: BlockReason, text: string): LoopEvent => ({ type: "blocked", step, reason, message: text });
 
@@ -213,7 +224,17 @@ export function createLoop(options: LoopOptions): Loop {
       if (checked.error !== undefined) return blocked("gate-error", checked.error);
       let decision = checked.value;
       yield { type: "decision", step, id, via: "check", decision: decision.decision, ...(decision.decision === "deny" ? { reason: decision.reason } : {}), action };
-      if (decision.decision === "deny") return blocked("gate-deny", `${decision.reason}: ${decision.message}`);
+      if (decision.decision === "deny") {
+        const why = `${decision.reason}: ${decision.message}`;
+        if (!options.denials?.retry(decision.reason)) return blocked("gate-deny", why);
+        const limit = options.denials.limit ?? DENY_LIMIT;
+        if (++denied >= limit) return blocked("gate-deny", `${limit} actions in a row were denied. The last one: ${why}`);
+        lastCheck = undefined;
+        const summary = `The gate denied this action (${why}). Nothing ran. Choose another action that this run may do.`;
+        messages.push({ role: "tool", tool_call_id: id, content: resultText(name, { ok: false, summary }, nonce) });
+        yield { type: "tool-result", step, id, name, ok: false, summary, reason: "gate-deny" };
+        return undefined;
+      }
       if (decision.decision === "ask") {
         if (!options.onApproval) return blocked("approval-unavailable", "the gate asks for approval, and the loop has no onApproval");
         const described = tool.describe ? await attempt(async () => String(await tool.describe?.(action.args, { ...ctx, domain: action.domain }))) : undefined;
@@ -232,6 +253,7 @@ export function createLoop(options: LoopOptions): Loop {
         if (decision.decision !== "allow") return blocked("gate-deny", decision.decision === "deny" ? `${decision.reason}: ${decision.message}` : "the gate asked again");
       }
       runs++;
+      denied = 0;
       if (decision.action.tool !== name) return blocked("gate-mismatch", `the gate allowed "${decision.action.tool}", not "${name}"`);
       const judged = decision.action;
       const work = attempt(() => tool.run(judged.args, { ...ctx, domain: judged.domain }));
