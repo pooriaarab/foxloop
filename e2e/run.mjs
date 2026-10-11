@@ -18,10 +18,22 @@ try {
   fox = await launch({ extension: "dist-ext", headless: !process.argv.includes("--headed") });
   record.firefox = await fox.browser.version();
   const sidebar = await fox.openExtensionPage("sidebar.html");
+  // E6: the tabs open before the first run. Each run must start and the test must end with this many.
+  const baseline = (await fox.browser.pages()).length;
+  const tabsAtStart = [];
+  // The tab of the last run. Its checks read it, so the next run (or the end) closes it.
+  let lastPage;
+  const closeLastPage = async () => {
+    await lastPage?.close();
+    lastPage = undefined;
+  };
 
   /** Saves the script, starts a goal on the tab at `path`, and answers each approval with `answer`. */
   async function run(name, path, goal, script, answer, settings = { tier: "scripted", script: script ?? "" }) {
+    await closeLastPage();
+    tabsAtStart.push((await fox.browser.pages()).length - baseline);
     const page = await fox.open(`${site.url}/${path}`);
+    lastPage = page;
     await sidebar.evaluate(async (s) => {
       await browser.storage.local.set({ settings: s });
       await window.foxloopDemo.loadSettings();
@@ -114,6 +126,10 @@ try {
   // OLLAMA_ORIGINS allows them, and CI has no Ollama. Either way the run must stop with a clear error.
   const local = await run("ollama-from-extension", "signup.html", "email: sam@example.com", "", "deny", { tier: "ollama", model: "qwen3:0.6b" });
   check("a model tier that cannot answer stops with model-error", true, local.status.startsWith("Blocked (model-error)"));
+
+  // E6: on Ichabod a session slows with each open tab, so no run may leave its tab behind.
+  await closeLastPage();
+  check("every run closes its tab", { atStart: tabsAtStart.map(() => 0), atEnd: 0 }, { atStart: tabsAtStart, atEnd: (await fox.browser.pages()).length - baseline });
 } catch (error) {
   record.error = error instanceof Error ? error.message : String(error);
   const pages = await fox?.browser.pages().catch(() => []);
