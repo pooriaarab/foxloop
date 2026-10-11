@@ -55,23 +55,30 @@ export function resultText(tool: string, output: Pick<ToolOutput, "ok" | "summar
 
 const size = (messages: Message[]) => messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
 
+/** What a cut tool message holds between its markers. */
+export const DROPPED = "[page text dropped to save space; call snapshot to read it again]";
+
 /**
- * Returns a copy of the history that fits in LIMITS.history characters. It
- * removes page text from the oldest tool messages first, and never from the
- * newest one. Summaries stay.
+ * Returns a copy of the history that fits in LIMITS.history characters.
+ * Under the limit, nothing changes. Over it, the page text of every tool
+ * message but the newest goes in one step, so the history drops to about
+ * half the limit. Keep the result as the history: between two trims it
+ * then only grows at the end, and a model can reuse its prompt cache.
+ * Status, summary and both markers stay; every other message stays as it is.
  */
 export function fitHistory(messages: Message[], nonce: string): Message[] {
   const fitted = messages.map((m) => ({ ...m }));
+  if (size(fitted) <= LIMITS.history) return fitted;
   const open = `<<<DATA ${nonce}>>>`;
   const close = `<<<END ${nonce}>>>`;
   const last = fitted.findLastIndex((m) => m.role === "tool");
-  for (let i = 0; i < last && size(fitted) > LIMITS.history; i++) {
-    const message = fitted[i];
-    const content = message?.content;
-    if (message?.role !== "tool" || !content?.includes(open)) continue;
+  for (const message of fitted.slice(0, Math.max(last, 0))) {
+    const content = message.content;
+    if (message.role !== "tool" || !content) continue;
     const start = content.indexOf(open);
     const end = content.indexOf(close);
-    if (end > start) message.content = `${content.slice(0, start)}[older page text removed]${content.slice(end + close.length)}`;
+    if (start < 0 || end < start) continue;
+    message.content = `${content.slice(0, start + open.length)}\n${DROPPED}\n${content.slice(end)}`;
   }
   return fitted;
 }
