@@ -8,6 +8,6 @@ allowBuilds:
 minimumReleaseAgeExclude:
   - create-foxkit@0.1.0
   - foxgate@0.1.0
-  - foxpaw@0.1.0
+  - foxpaw@0.1.3
   - foxtrail@0.1.0
   - foxmind@0.1.0
