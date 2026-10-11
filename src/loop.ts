@@ -2,7 +2,7 @@
 // the action foxgate judged, check the result, repeat. Each step is an event.
 import type { Action, Gate } from "foxgate";
 import { FoxloopError } from "./errors.js";
-import { LIMITS, fitHistory, newNonce, plannerPrompt, resultText, skippedText, type Message } from "./prompt.js";
+import { LIMITS, fitHistory, goalMessage, newNonce, plannerPrompt, resultText, skippedText, type Message } from "./prompt.js";
 import { checkArgs } from "./schema.js";
 import { FINISH, defineTools } from "./tools.js";
 import type { CheckResult, LoopTool, ToolContext, ToolOutput } from "./types.js";
@@ -136,7 +136,7 @@ const defsOf = (tools: Iterable<LoopTool>): ToolDef[] => [
     function: {
       name: FINISH,
       description: "Call this when the goal is reached. foxloop then checks the result.",
-      parameters: { type: "object", properties: { summary: { type: "string" } }, required: ["summary"] },
+      parameters: { type: "object", properties: { summary: { type: "string", description: "At most 15 words." } }, required: ["summary"] },
     },
   },
 ];
@@ -210,7 +210,7 @@ export function createLoop(options: LoopOptions): Loop {
       return Promise.race([work, aborted]).finally(() => listener.stop && signal.removeEventListener("abort", listener.stop));
     };
     const nonce = newNonce();
-    const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce, { denials: Boolean(options.denials), batch: { max: maxCalls, last } }) }, { role: "user", content: `Goal: ${goal}` }];
+    const messages: Message[] = [{ role: "system", content: plannerPrompt({ denials: Boolean(options.denials), batch: { max: maxCalls, last } }) }, { role: "user", content: goalMessage(goal, nonce) }];
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
     // Gate denials in a row that went back to the model (G12, G13).
     let denied = 0;
