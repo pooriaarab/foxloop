@@ -39,6 +39,21 @@ describe("P1: page text is data", () => {
     expect(prompt).toMatch(/gate denies an action, its result says why/);
   });
 
+  it("M8: with a cap of 1, rule 1 says one tool at a time", () => {
+    expect(plannerPrompt(newNonce())).toContain("1. Call one tool at a time.");
+    expect(plannerPrompt(newNonce(), { batch: { max: 1, last: ["click"] } })).toContain("1. Call one tool at a time.");
+  });
+
+  it("M8: with a cap above 1, rule 1 gives the cap, the order, the tools that go last and the skip", () => {
+    const prompt = plannerPrompt(newNonce(), { batch: { max: 4, last: ["click", "browser_task"] } });
+    expect(prompt).not.toContain("Call one tool at a time");
+    expect(prompt).toMatch(/up to 4 tools/);
+    expect(prompt).toMatch(/in order/);
+    expect(prompt).toMatch(/click, browser_task/);
+    expect(prompt).toMatch(/last/);
+    expect(prompt).toMatch(/skip/);
+  });
+
   it("marks a failed result as failed", () => {
     expect(resultText("act", { ok: false, summary: "stale" }, newNonce()).startsWith("act: failed")).toBe(true);
   });
