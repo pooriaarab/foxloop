@@ -273,3 +273,84 @@ describe("T1-T3: the trail", () => {
     expect(last(events)).toMatchObject({ type: "blocked", reason: "trail-failed" });
   });
 });
+
+const retry = (reason: string) => reason === "no-grant";
+/** save_note has a grant on notes.local; post_note on other.local has none. */
+async function twoTools(grants = [{ scope: "fill" as const, domains: [DOMAIN] }]) {
+  const note = noteTool(() => ({ ok: true, summary: "saved", check: ok }));
+  const posts: Record<string, unknown>[] = [];
+  const post: LoopTool = { ...note.tool, name: "post_note", description: "Post a note.", domain: () => "other.local", run: async (args) => {
+    posts.push(args);
+    return { ok: true, summary: "posted" };
+  } };
+  const g = await gateFor([note.tool, post], grants);
+  return { note, posts, post, ...g };
+}
+const postCall = (text: string) => ({ calls: [{ name: "post_note", args: { text } }] });
+const saveCall = (text: string) => ({ calls: [{ name: "save_note", args: { text } }] });
+
+describe("G12-G14: gate denials that go back to the model", () => {
+  it("G12: a check-time deny goes back to the model as a failed result, and nothing runs", async () => {
+    const { note, posts, post, gate } = await twoTools();
+    const mind = scriptedMind([postCall("a"), saveCall("a"), finish]);
+    const events = await collect(createLoop({ mind, gate, tools: [note.tool, post], denials: { retry } }).run("Save."));
+    expect(posts).toEqual([]);
+    expect(note.runs).toEqual([{ text: "a" }]);
+    expect(ofType(events, "decision").map((d) => d.decision)).toEqual(["deny", "allow"]);
+    expect(ofType(events, "tool-result")[0]).toMatchObject({ name: "post_note", ok: false, reason: "gate-deny" });
+    expect(ofType(events, "tool-result")[0]?.summary).toMatch(/no-grant/);
+    const told = mind.seen[1]?.at(-1);
+    expect(told).toMatchObject({ role: "tool" });
+    expect(told?.content).toMatch(/^post_note: failed/);
+    expect(told?.content).toMatch(/no-grant/);
+    expect(mind.seen[0]?.[0]?.content).toMatch(/gate denies an action, its result says why/);
+    expect(last(events)?.type).toBe("done");
+  });
+
+  it("G12: a retried deny does not count toward three failures in a row (L3)", async () => {
+    const failing = noteTool(() => ({ ok: false, summary: "nope" }));
+    const { post, gate } = await twoTools();
+    // failed, denied, failed: two failures in a row, not three.
+    const mind = scriptedMind([saveCall("1"), postCall("a"), saveCall("2")]);
+    const events = await collect(createLoop({ mind, gate, tools: [failing.tool, post], denials: { retry }, maxSteps: 3 }).run("Save."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "max-steps" });
+  });
+
+  it("G13: the third retried deny in a row stops the run with gate-deny", async () => {
+    const { note, posts, post, gate } = await twoTools();
+    const events = await collect(createLoop({ mind: scriptedMind([postCall("a"), postCall("b"), postCall("c"), finish]), gate, tools: [note.tool, post], denials: { retry } }).run("Post."));
+    expect(posts).toEqual([]);
+    expect(ofType(events, "tool-result").length).toBe(2);
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "gate-deny" });
+    expect((last(events) as { message: string }).message).toMatch(/3 .*in a row.*no-grant/);
+  });
+
+  it("G13: an allowed call sets the count back to 0, and limit sets the cap", async () => {
+    const { note, post, gate } = await twoTools();
+    const mind = scriptedMind([postCall("a"), saveCall("1"), postCall("b"), saveCall("2"), finish]);
+    const events = await collect(createLoop({ mind, gate, tools: [note.tool, post], denials: { retry, limit: 2 } }).run("Save."));
+    expect(last(events)?.type).toBe("done");
+    const capped = await collect(createLoop({ mind: scriptedMind([postCall("a"), postCall("b"), finish]), gate, tools: [note.tool, post], denials: { retry, limit: 2 } }).run("Post."));
+    expect(last(capped)).toMatchObject({ type: "blocked", reason: "gate-deny" });
+  });
+
+  it("G14: a reason that retry refuses still stops the run", async () => {
+    const { note, post, gate } = await twoTools();
+    const events = await collect(createLoop({ mind: scriptedMind([postCall("a")]), gate, tools: [note.tool, post], denials: { retry: () => false } }).run("Post."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "gate-deny" });
+  });
+
+  it("G14: a human's no still stops the run", async () => {
+    const { tool, runs, gate } = await asking();
+    const events = await collect(createLoop({ mind: scriptedMind([send()]), gate, tools: [tool], onApproval: async () => null, denials: { retry: () => true } }).run("Send."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "approval-denied" });
+    expect(runs).toEqual([]);
+  });
+
+  it("G14: a deny at redeem still stops the run", async () => {
+    const { tool, runs, gate } = await asking();
+    const events = await collect(createLoop({ mind: scriptedMind([send()]), gate, tools: [tool], onApproval: async () => "forged.token", denials: { retry: () => true } }).run("Send."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "gate-deny" });
+    expect(runs).toEqual([]);
+  });
+});
