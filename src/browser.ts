@@ -47,16 +47,28 @@ const hostOf = (url: string | undefined): string => {
   return parsed.hostname;
 };
 
+const readSummary = (page: Snapshot) => `Read the page: ${page.controls.length} controls${page.more ? "; the page can scroll" : ""}.`;
+
 /** The page as text for the model. All of it comes from the page, so it is untrusted. */
 function pageText(page: Snapshot): string {
   const lines = page.controls.slice(0, MAX_CONTROLS).map((c) => {
     const flags = [c.required && "required", c.disabled && "disabled", c.checked && "checked", c.submit && "sends the form"].filter(Boolean);
     const options = c.options?.length ? ` options=${JSON.stringify(c.options.map((o) => o.value))}` : "";
-    return `[${c.id}] ${c.role} "${c.label}"${c.value ? ` value="${c.value}"` : ""}${options}${flags.length ? ` (${flags.join(", ")})` : ""}`;
+    // A secret control's value never goes to the model, even when a snapshot holds one (A4).
+    return `[${c.id}] ${c.role} "${c.label}"${c.value && !c.secret ? ` value="${c.value}"` : ""}${options}${flags.length ? ` (${flags.join(", ")})` : ""}`;
   });
   const more = page.controls.length - MAX_CONTROLS;
   if (more > 0) lines.push(`... ${more} more controls`);
   return [`Title: ${page.title}`, `Address: ${page.url}`, "Controls:", ...lines, "Text:", page.text].join("\n");
+}
+
+/** Why calls planned on `before` must not run on `after`: the address changed, or a control is gone or is another one (M4). */
+function changed(before: Snapshot, after: Snapshot | undefined): string | undefined {
+  if (!after) return "the page could not be read again";
+  if (after.url !== before.url) return "the page address changed";
+  const now = new Map(after.controls.map((c) => [c.id, c]));
+  const moved = before.controls.some((c) => now.get(c.id)?.role !== c.role || now.get(c.id)?.label !== c.label);
+  return moved ? "a control on the page is gone or changed" : undefined;
 }
 
 /**
@@ -129,7 +141,8 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     await paw.settle(tabId, { frameId: control.frameId }, api());
     const after = await read(tabId).catch(() => undefined);
     const sent = result.submitted ? " The form was sent." : "";
-    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: after ? pageText(after) : undefined };
+    const stopBatch = result.submitted ? "the form was sent" : changed(page, after);
+    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: after ? pageText(after) : undefined, ...(stopBatch ? { stopBatch } : {}) };
   };
 
   const control = { controlId: { type: "string", description: "The control id from the last snapshot, for example \"0:12\"." } };
@@ -144,7 +157,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const refused = await moved(ctx);
         if (refused) return refused;
         const page = await read(await options.tabId());
-        return { ok: true, summary: `Read the page: ${page.controls.length} controls${page.more ? "; the page can scroll" : ""}.`, untrusted: pageText(page) };
+        return { ok: true, summary: readSummary(page), untrusted: pageText(page), stopBatch: "the page was read again" };
       }),
     },
     {
@@ -188,7 +201,12 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
           await sleep(200);
           if ((await api().tabs.get(tabId)).status === "complete") break;
         }
-        return { ok: true, summary: `Opened ${String(args.url)}. Call snapshot to read it.` };
+        // Read the new page here, so the model needs no snapshot call (A1). Only on the judged host (A5).
+        const refused = await moved(ctx);
+        if (refused) return { ok: true, summary: `Opened ${String(args.url)}. ${refused.summary.replace(" Nothing ran.", "")} Call snapshot to read it.`, stopBatch: "the tab opened a new page" };
+        const page = await read(tabId).catch(() => undefined);
+        if (!page) return { ok: true, summary: `Opened ${String(args.url)}. The page read failed. Call snapshot to read it.`, stopBatch: "the tab opened a new page" };
+        return { ok: true, summary: `Opened ${String(args.url)}. ${readSummary(page)}`, untrusted: pageText(page), stopBatch: "the tab opened a new page" };
       }),
     },
     {

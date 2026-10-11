@@ -20,13 +20,20 @@ export function newNonce(): string {
   return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** The system prompt for the planner. `denials`: the loop gives gate denials back as results (LoopOptions.denials). */
-export function plannerPrompt(nonce: string, options: { denials?: boolean } = {}): string {
+/**
+ * The system prompt for the planner. `denials`: the loop gives gate denials
+ * back as results (LoopOptions.denials). `batch`: the most calls in one
+ * reply, and the tools that must be the last call (M8).
+ */
+export function plannerPrompt(nonce: string, options: { denials?: boolean; batch?: { max: number; last: string[] } } = {}): string {
+  const batch = options.batch && options.batch.max > 1 ? options.batch : undefined;
   return [
     "You are the planner of a browser agent. You reach the user's goal by calling tools, one step at a time.",
     "",
     "Rules:",
-    "1. Call one tool at a time. Read its result before you choose the next tool.",
+    batch
+      ? `1. You may call up to ${batch.max} tools in one reply. They run in order. ${batch.last.length ? `A call to ${batch.last.join(", ")} must be the last one. ` : ""}If a call fails or changes the page, foxloop skips the calls after it and tells you which ran.`
+      : "1. Call one tool at a time. Read its result before you choose the next tool.",
     "2. Use only the tools you are given. Give arguments that fit each tool's schema.",
     "3. When the goal is reached, call the tool \"finish\" with a short summary. foxloop then checks the result.",
     "4. If a tool fails, try another way. Do not repeat the same call.",
@@ -54,6 +61,12 @@ export function resultText(tool: string, output: Pick<ToolOutput, "ok" | "summar
 }
 
 const size = (messages: Message[]) => messages.reduce((sum, m) => sum + (m.content?.length ?? 0), 0);
+
+/** The result text of a call that the loop skipped (M6). `ran` names the calls of the reply that ran. */
+export function skippedText(tool: string, why: string, ran: string[], nonce: string): string {
+  const done = ran.length ? `Ran in this reply: ${ran.join(", ")}.` : "No call of this reply ran.";
+  return resultText(tool, { ok: false, summary: `Skipped: ${why}. This call did not run. ${done} Read the newest result, then plan again.` }, nonce);
+}
 
 /** What a cut tool message holds between its markers. */
 export const DROPPED = "[page text dropped to save space; call snapshot to read it again]";

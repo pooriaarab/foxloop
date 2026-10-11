@@ -316,6 +316,8 @@ describe("A1, A3-A5, M4: open_url reads the page it opened", () => {
     const { tool, calls, setUrl } = fakes([page([control(1, "Email")])]);
     const t = tool("open_url");
     const run = t.run({ url: "https://shop.example/next" }, { ...ctx, domain: "shop.example" });
+    // The redirect lands while open_url waits for the load.
+    await new Promise((resolve) => setTimeout(resolve, 50));
     setUrl("https://evil.example/");
     const out = await run;
     expect(calls).not.toContain("snapshot");
