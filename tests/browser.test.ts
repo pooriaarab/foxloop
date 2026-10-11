@@ -80,6 +80,9 @@ const checkout = () => {
     control(13, "Email", real), control(14, "Card number", real), control(15, "CVC", real), control(16, "Pay $40.00", { ...real, role: "button", tag: "button", submit: true })],
   { url: "https://shop.example/checkout/pay", frames: [{ frameId: 0, url: "https://shop.example/checkout/pay", key: "k" }] });
 };
+/** Two copies of the sign-up form: foxpaw does not guess between them (foxpaw C23). */
+const twin = (form: number) => [control(form * 10 + 1, "Email", { form, action: "https://shop.example/signup" }),
+  control(form * 10 + 2, "Sign up", { role: "button", tag: "button", submit: true, form, action: "https://shop.example/signup" })];
 const CARD = 'email: sam@example.com, card number: 4242 4242 4242 4242, CVC: 123, then click "Pay $40.00"';
 
 describe("G16: the browser_task approval names the destination and the fields", () => {
@@ -100,8 +103,6 @@ describe("G16: the browser_task approval names the destination and the fields", 
   });
 
   it("says when foxpaw would stop on this page", async () => {
-    const twin = (form: number) => [control(form * 10 + 1, "Email", { form, action: "https://shop.example/signup" }),
-      control(form * 10 + 2, "Sign up", { role: "button", tag: "button", submit: true, form, action: "https://shop.example/signup" })];
     const { describeVia } = fakes([page([...twin(4), ...twin(5)])]);
     expect(await describeVia("browser_task", { goal: "email: sam@example.com, sign up" })).toContain("foxpaw expects to stop here: two forms fit the goal");
   });
@@ -263,7 +264,8 @@ describe("B7: the tab moved after the gate check", () => {
       expect(out.ok).toBe(false);
       expect(out.summary).toMatch(/evil\.example/);
     }
-    expect(calls).toEqual(["snapshot"]);
+    // browser_task's prepare reads the page for its preview (G16); nothing acts.
+    expect(calls.filter((c) => c !== "snapshot")).toEqual([]);
   });
 });
 
@@ -272,7 +274,7 @@ describe("P4: foxpaw's page words stay out of the summary", () => {
 
   it("puts browser_task's blocked reason and message in the untrusted text", async () => {
     const { call } = fakes([signup()], [], { status: "blocked", verified: false, blockedReason: `risky: ${NOTE}`, message: NOTE });
-    const out = await call("browser_task", { goal: "sign up" });
+    const out = await call("browser_task", { goal: "email: sam@example.com, sign up" });
     expect(out.summary).not.toContain("IMPORTANT");
     expect(out.untrusted).toContain(NOTE);
   });
