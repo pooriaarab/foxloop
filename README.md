@@ -213,6 +213,8 @@ time; a second `run` throws `FoxloopError` `busy`.
 | `onApproval` | none | `(request) => Promise<string \| null>`. Show `request.action` and `request.detail` to the human. Return the token from `host.approve`, or `null` for no. With no `onApproval`, an `ask` stops the run. |
 | `trail` | none | `{ append({ actor, kind, data }) }`. A foxtrail `Log` fits. Each event is one entry with the kind `loop.<event type>`. |
 | `maxSteps` | 20 | The most model calls in one run. |
+| `maxCallsPerTurn` | 4 | The most tool calls the loop runs from one model reply. Each call still gets its own gate check, approval and trail entries. After a failed call, a call that sends or pays, or a result with `stopBatch`, the rest of the reply is skipped: each skipped call gets a failed result with reason `skipped`. `1` keeps the "one tool at a time" prompt. |
+| `firstRead` | none | A read tool with no required arguments, for example `"snapshot"`. It runs before the first model call when `gate.check` allows it; a deny, an ask or a tab with no page skips it. Its result goes in the history right after the goal. |
 | `budget` | none | `{ tokens?, toolCalls?, ms? }`. Tokens come from the model's usage, else from the text length divided by 4. The tool call budget is checked before the gate, so no human approves a call that the budget refuses. |
 | `check` | the newest tool result's check | `({ goal, summary, lastCheck }) => CheckResult`. Decides if `finish` passes. |
 | `now` | `Date.now` | The clock for the time budget. |
@@ -269,10 +271,10 @@ result is `stale` and nothing runs. Calls on one tab run one at a time.
 
 | Tool | Scope | What it does |
 |---|---|---|
-| `snapshot` | `read` | Reads the page. The model gets up to 40 controls and the page text, all as untrusted data. |
+| `snapshot` | `read` | Reads the page. The model gets up to 40 controls and the page text, all as untrusted data. A password field's value is never in it. |
 | `act` | `fill` | Types, selects, checks, unchecks, sets a date or scrolls one control from the last snapshot, then reads the page again. |
 | `click` | `submit` | Clicks one control from the last snapshot. A click can send a form, so foxgate asks by default. |
-| `open_url` | `read` | Opens an `http:` or `https:` address in the tab. The domain is the host of that address. |
+| `open_url` | `read` | Opens an `http:` or `https:` address in the tab, then reads the page when the tab is still on the judged host. The domain is the host of that address. |
 | `browser_task` | `submit` | Runs foxpaw's `runTask` with a goal and returns foxpaw's check. |
 
 ### Other exports
