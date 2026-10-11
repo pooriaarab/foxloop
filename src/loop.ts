@@ -295,7 +295,9 @@ export function createLoop(options: LoopOptions): Loop {
         const over = overBudget(tokens, now() - started);
         if (over) return yield blocked("budget", over);
         step++;
-        const history = fitHistory(messages, nonce);
+        // Keep the trim, so the history only grows at the end between trims (L17).
+        messages.splice(0, messages.length, ...fitHistory(messages, nonce));
+        const history = messages.map((m) => ({ ...m }));
         const answer = await race(attempt(() => options.mind.chat(history, { tools: defs, signal })));
         if (answer === ABORTED || signal.aborted) return yield { type: "aborted", step };
         if (answer.error !== undefined) return yield blocked("model-error", answer.error);
