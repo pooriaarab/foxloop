@@ -19,7 +19,7 @@ const page = (controls: Control[], over: Partial<Snapshot> = {}): Snapshot => ({
   controls, frames: [{ frameId: 0, url: "https://shop.example/signup", key: "k" }], captcha: false, more: false, ...over,
 });
 
-function fakes(snaps: Snapshot[], acts: ActResult[] = [], run?: Partial<RunResult>, actDelayMs = 0) {
+function fakes(snaps: (Snapshot | Error)[], acts: ActResult[] = [], run?: Partial<RunResult>, actDelayMs = 0) {
   const calls: string[] = [];
   const runs: RunOptions[] = [];
   let url = "https://shop.example/signup";
@@ -34,7 +34,9 @@ function fakes(snaps: Snapshot[], acts: ActResult[] = [], run?: Partial<RunResul
   const paw: PawLike = {
     snapshot: async () => {
       calls.push("snapshot");
-      return snaps.shift() ?? page([]);
+      const next = snaps.shift() ?? page([]);
+      if (next instanceof Error) throw next;
+      return next;
     },
     act: async (_tab, c, request) => {
       calls.push(`act:${c.id}:${request.op}:${request.value ?? ""}`);
@@ -181,13 +183,40 @@ describe("B2, B3: act and click need a fresh snapshot", () => {
     expect(calls).toEqual(["snapshot", "act:0:1:type:sam@example.com", "acted:Email", "snapshot"]);
   });
 
-  it("B3: a stale page fails the result and drops the snapshot", async () => {
+  it("B3: a stale page fails the result, and the call does not run on the old snapshot", async () => {
     const { tool, call } = fakes([page([control(1, "Email")])], [{ ok: false, reason: "stale" }]);
     await tool("snapshot").run({}, ctx);
     const out = await call("act", { controlId: "0:1", op: "type", value: "x" }, ctx);
     expect(out.ok).toBe(false);
     expect(out.summary).toMatch(/stale/);
-    expect((await call("act", { controlId: "0:1", op: "type", value: "x" }, ctx)).summary).toMatch(/snapshot/);
+  });
+
+  it("B13: a refusal reads the page again, so the next call needs no snapshot call", async () => {
+    const before = page([control(1, "From", { role: "combobox" }), control(2, "Search", { role: "button", tag: "button", submit: true })]);
+    const after = page([control(1, "From", { role: "combobox", value: "LHR", expanded: true }), control(3, "London Heathrow (LHR)", { role: "option" }), control(2, "Search", { role: "button", tag: "button", submit: true })]);
+    const { tool, call, calls } = fakes([before, after], [{ ok: false, reason: "covered", detail: "li is on top" }]);
+    await tool("snapshot").run({}, ctx);
+    const out = await call("click", { controlId: "0:2" }, ctx);
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/covered/);
+    expect(out.summary).not.toMatch(/Call snapshot/);
+    // The page as it is now, as untrusted data: the new option and foxpaw's detail.
+    expect(out.untrusted).toMatch(/London Heathrow \(LHR\)/);
+    expect(out.untrusted).toMatch(/li is on top/);
+    // The next call acts on the new read with no snapshot call in between.
+    const next = await call("click", { controlId: "0:3" }, ctx);
+    expect(next.ok).toBe(true);
+    expect(calls.filter((c) => c === "snapshot")).toHaveLength(3);
+    expect(calls).toContain("act:0:3:click:");
+  });
+
+  it("B13: when the read after a refusal fails, the result says to call snapshot", async () => {
+    const { tool, call } = fakes([page([control(1, "Email")]), new Error("the tab is gone")], [{ ok: false, reason: "covered" }]);
+    await tool("snapshot").run({}, ctx);
+    const out = await call("act", { controlId: "0:1", op: "type", value: "x" }, ctx);
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/Call snapshot/);
+    expect((await call("act", { controlId: "0:1", op: "type", value: "x" }, ctx)).summary).toMatch(/snapshot first/);
   });
 });
 

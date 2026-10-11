@@ -148,7 +148,7 @@ short question to the user, waits, and gives the answer back as the result.
 |---|---|---|---|
 | B1 | `open_url` gets a `javascript:`, `file:`, `data:` or `moz-extension:` address. | Its `domain` function throws, so G9 applies. Only `http:` and `https:` open. | Isolated `tests/browser.test.ts` |
 | B2 | `act` or `click` names a control that is not in the last snapshot, or no snapshot exists. | A failed result that tells the model to call `snapshot` first. | Isolated `tests/browser.test.ts` |
-| B3 | The page changed after the snapshot. | foxpaw returns `stale`. The result fails, and the snapshot is dropped. | Isolated `tests/browser.test.ts` |
+| B3 | The page changed after the snapshot. | foxpaw returns `stale`. The result fails, and the call planned on the old snapshot does not run. The tool reads the page again (B13). | Isolated `tests/browser.test.ts` |
 | B4 | `browser_task` ends `blocked` or not verified. | The result carries a failed check, so `finish` cannot pass (L5). | Isolated `tests/browser.test.ts` |
 | B5 | The model names a domain for a tab tool. | Tab tools take the domain from the tab address when the call runs. They have no domain argument. | Isolated `tests/browser.test.ts` |
 | B7 | The tab moves to another host after the gate check, for example while the human reads the approval. The tool acts on a host that the gate never judged. | The loop passes the judged domain to `run` as `ctx.domain`. Tab tools compare it with the tab's host first. When they differ, nothing runs and the result fails. | Isolated `tests/browser.test.ts`, `tests/approval.test.ts` |
@@ -158,6 +158,7 @@ short question to the user, waits, and gives the answer back as the result.
 | B10 | The diff leaves out an alert that the action caused ("Please enter a valid email"), so the planner thinks the action worked. | Every new text line is in the diff. foxpaw never drops a line that reads as an error or an alert. | Isolated `tests/browser.test.ts` |
 | B11 | The action navigated or reloaded the page, or changed most of it, but the result is a diff against a page that is gone. | foxpaw gives the full page then. A full-page result also sets `stopBatch` (M4), so no planned call runs on the new page. | Isolated `tests/browser.test.ts` |
 | B12 | A diff holds the value of a secret control that the action typed into (A4). | foxloop masks the value of every `secret` control as `•••` before foxpaw writes the page text or the diff. | Isolated `tests/browser.test.ts` |
+| B13 | foxpaw refuses an action (`covered`, `unsupported`, `stale`, `disabled`). The result drops the snapshot and says "Call snapshot", so the planner's next reply is only a `snapshot` call: one more model call for each refusal (seen on foxbench flights: 6 of 30 steps). | After a refusal, the tool reads the page again at once, through the same `snapshot` hook (so foxmate's foxshield scans it), and keeps that read as the newest snapshot. The failed result gives the page as untrusted text: the diff against the page that the call was planned on, or the whole page after a navigation. The next reply can act on its ids, and each call is pinned to the new read (B8). When the read fails, the result says "Call snapshot" as before. | Isolated `tests/browser.test.ts` |
 
 ## End to end
 
