@@ -277,6 +277,16 @@ result is `stale` and nothing runs. Calls on one tab run one at a time.
 | `open_url` | `read` | Opens an `http:` or `https:` address in the tab, then reads the page when the tab is still on the judged host. The domain is the host of that address. |
 | `browser_task` | `submit` | Reads the page and adds foxpaw's `preview` to the call as `form`: the destination, the send button and the fields, with sensitive values masked. Then runs foxpaw's `runTask` with the goal, pinned to that destination, and returns foxpaw's check. |
 
+### `askUserTool({ ask, domain?, max? })`
+
+The `ask_user` tool: the planner asks the user one short question (1 to 300
+characters), the run waits on `ask(question, ctx)`, and the answer comes back
+as the result, cut to 500 characters. It is a `read` tool on its own domain
+(default `user.foxloop`), so grant that domain and the gate and the trail see
+each question. Calls after it in the same reply are skipped. No answer, or a
+throw, is a failed result and not a stop. A run asks at most `max` questions
+(default 3).
+
 ### Other exports
 
 | Export | What it does |
