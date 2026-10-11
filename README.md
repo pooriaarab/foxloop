@@ -216,6 +216,7 @@ time; a second `run` throws `FoxloopError` `busy`.
 | `budget` | none | `{ tokens?, toolCalls?, ms? }`. Tokens come from the model's usage, else from the text length divided by 4. The tool call budget is checked before the gate, so no human approves a call that the budget refuses. |
 | `check` | the newest tool result's check | `({ goal, summary, lastCheck }) => CheckResult`. Decides if `finish` passes. |
 | `now` | `Date.now` | The clock for the time budget. |
+| `denials` | none | `{ retry, limit? }`. A `deny` at `gate.check` whose foxgate reason `retry(reason)` accepts goes back to the model as a failed result (`gate-deny`), and the run goes on. The `limit`-th such deny in a row (default 3) stops the run. A human's no and a deny at `gate.redeem` always stop the run. With no `denials`, every deny stops the run. |
 
 ### Events
 

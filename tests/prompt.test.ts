@@ -28,6 +28,17 @@ describe("P1: page text is data", () => {
     expect(prompt).toContain("finish");
   });
 
+  it("G15: without denials, rule 6 says that a denied action stops the run", () => {
+    expect(plannerPrompt(newNonce())).toContain("A denied action stops the run.");
+  });
+
+  it("G15: with denials, rule 6 says that a human's no stops the run and a gate denial comes back", () => {
+    const prompt = plannerPrompt(newNonce(), { denials: true });
+    expect(prompt).not.toContain("A denied action stops the run.");
+    expect(prompt).toMatch(/If the user denies an action, the run stops\./);
+    expect(prompt).toMatch(/gate denies an action, its result says why/);
+  });
+
   it("marks a failed result as failed", () => {
     expect(resultText("act", { ok: false, summary: "stale" }, newNonce()).startsWith("act: failed")).toBe(true);
   });
