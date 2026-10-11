@@ -102,6 +102,29 @@ describe("L11: results and history stay small", () => {
     expect(text).toContain("[cut]");
   });
 
+  it("P7: a cut inside an untrusted-data block closes the block after a [truncated] line", () => {
+    const nonce = newNonce();
+    const untrusted = ["| intro ".repeat(480), '<untrusted-data source="page">', "| evil ".repeat(200), "</untrusted-data>", "| outside after the block"].join("\n");
+    expect(untrusted.indexOf("<untrusted-data")).toBeLessThan(LIMITS.untrusted);
+    expect(untrusted.indexOf("</untrusted-data>")).toBeGreaterThan(LIMITS.untrusted);
+    const data = resultText("snapshot", { ok: true, summary: "Read.", untrusted }, nonce).split(`<<<DATA ${nonce}>>>\n`)[1] ?? "";
+    const lines = data.split("\n");
+    expect(lines.at(-1)).toBe(`<<<END ${nonce}>>>`);
+    expect(lines.at(-2)).toBe("&lt;/untrusted-data&gt;");
+    expect(lines.at(-3)).toBe("[truncated]");
+    expect(lines.filter((l) => l.startsWith("&lt;untrusted-data")).length).toBe(1);
+    expect(data).not.toContain("outside after the block");
+  });
+
+  it("P7: a cut after a closed block keeps the [cut] marker and adds no fence", () => {
+    const nonce = newNonce();
+    const untrusted = ['<untrusted-data source="page">', "| evil", "</untrusted-data>", "| tail ".repeat(800)].join("\n");
+    const text = resultText("snapshot", { ok: true, summary: "Read.", untrusted }, nonce);
+    expect(text.match(/&lt;\/untrusted-data&gt;/g)?.length).toBe(1);
+    expect(text).toContain("[cut]");
+    expect(text).not.toContain("[truncated]");
+  });
+
   it("leaves a history under the limit as it is", () => {
     const nonce = newNonce();
     const messages = pages(nonce, 3);
