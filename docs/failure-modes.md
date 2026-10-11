@@ -50,6 +50,36 @@ or `aborted`. No tool runs after a stop.
 | L12 | The caller stops reading events (`break`). The loop keeps acting in the background. | The loop stops at the next step. No more tools run. | Isolated `tests/loop.test.ts` |
 | L13 | The caller starts a second run on the same loop while one runs. Two runs share the history. | The second `run` throws `busy`. | Isolated `tests/loop.test.ts` |
 
+## Several calls in one reply
+
+With `maxCallsPerTurn` above 1 (default 4), the model may ask for several
+tool calls in one reply, so a task needs fewer model calls. A "batch" is the
+calls of one reply. A "skip" is a call of the batch that does not run.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| M1 | A batch skips an approval: the second `ask` call of a batch runs on the first call's approval. | Each call goes through `gate.check` on its own, and each `ask` gets its own `approval-needed` event, its own `onApproval` call and its own `gate.redeem`. | Isolated `tests/batch.test.ts` |
+| M2 | A batch merges approvals: one approval request lists, or one token covers, two actions. | Each `onApproval` request holds one action. A token redeems one action only (foxgate), so a token used for call 1 cannot run call 2. | Isolated `tests/batch.test.ts` |
+| M3 | A call that sends or pays is not last. Later calls run on the page after the send, which the model never saw. | After a call whose tool scope, or whose judged scope, is `submit` or `pay`, the rest of the batch is skipped. | Isolated `tests/batch.test.ts` |
+| M4 | Calls after a navigation run on the wrong page: `open_url` reads the new page, and the next `click` pins control "0:12" of a page the model never saw. | A tool result can carry `stopBatch`. `open_url` always sets it. `act` sets it when the address changed or a control of the page before is gone or has another role or label. `snapshot` sets it when it is the first read of the tab or the page changed since the last read. The rest of the batch is skipped. Known gap: `changed` does not see new controls, such as a modal that covers the page. | Isolated `tests/batch.test.ts`, `tests/browser.test.ts` |
+| M9 | Three identical calls in one reply (three scrolls) hit the L2 repeat limit with no model turn between. | Identical calls in one reply count once toward L2. | Isolated `tests/batch.test.ts` |
+| M5 | A call fails, or the gate denies it (G12), and the calls after it still run on a plan that no longer holds. | After a failed result (any reason), the rest of the batch is skipped. | Isolated `tests/batch.test.ts` |
+| M6 | A skipped call is reported as done, or gets no result. The model thinks it ran, or the API refuses a `tool_calls` entry with no `tool` message. | Each skipped call gets a `tool` message and a `tool-result` event with `ok: false` and reason `skipped`. The text names the calls that ran and says this one did not run. A skip does not count toward L3 and does not change the last check (L14). | Isolated `tests/batch.test.ts` |
+| M7 | The model asks for more calls than the cap, or `finish` before other calls. | Calls past `maxCallsPerTurn` are skipped. `finish` ends the batch, and it is skipped when the batch ended before it. | Isolated `tests/batch.test.ts` |
+| M8 | The prompt still says "one tool at a time", or does not say which calls must be last. | With a cap above 1, rule 1 gives the cap, says that calls run in order, names the tools that send or pay, and says that a failure or a page change skips the rest. With a cap of 1, rule 1 does not change. | Isolated `tests/prompt.test.ts` |
+
+## Page read with no model call
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| A1 | Two model calls per task only read the page: one at the start, one after `open_url`. | With `firstRead: "snapshot"`, the loop runs that tool before the first model call and adds its call and result to the history. `open_url` reads the new page and returns it. | Isolated `tests/batch.test.ts`, `tests/browser.test.ts` |
+| A2 | The first read skips the gate, or a deny or an ask at the first read stops the run or asks the human. | The first read goes through `gate.check`, and the trail gets its events. Only `allow` runs it. A deny, an ask, or a tab with no web page skips the read, and the run goes on. | Isolated `tests/batch.test.ts` |
+| A3 | The read puts page text outside the data fence. | The page text goes only in the `untrusted` part, between the nonce markers, cut to 4,000 characters (L11). Summaries hold only text that foxloop writes. | Isolated `tests/batch.test.ts`, `tests/browser.test.ts` |
+| A4 | The read on a sign-in wall puts a password value into the page text. | The read uses the same `paw.snapshot` as `snapshot`, so the host's foxshield and foxpass wrappers apply. The page text never holds the value of a `secret` control. | Isolated `tests/browser.test.ts` |
+| A5 | `open_url` is sent to another host (a redirect), and the read gives the model a page on a host that the gate never judged. | `open_url` reads only when the tab host is the judged domain. Else its result says where the tab is and holds no page text. | Isolated `tests/browser.test.ts` |
+| A6 | The first read breaks the stable history (L17): it goes in the system prompt, or in front of older messages. | The read is an assistant call and a `tool` message right after the goal. The trim can cut its page text as for any other result. | Isolated `tests/batch.test.ts` |
+| A7 | `firstRead` names a tool that does not exist, is not a read, or needs arguments. | `createLoop` throws `bad-options`. | Isolated `tests/batch.test.ts` |
+
 ## Gate and approval
 
 | # | Failure mode | Wanted behaviour | Test |
