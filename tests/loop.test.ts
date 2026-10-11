@@ -1,7 +1,7 @@
 // Failure modes R4-R7, L1-L6, L10, L12, L13 and the loop side of P1 in
 // docs/failure-modes.md. The planner is scriptedMind, so each run is the same.
 import { describe, expect, it } from "vitest";
-import { FoxloopError, createLoop, scriptedMind, type LoopTool } from "../src/index.js";
+import { FoxloopError, LIMITS, createLoop, scriptedMind, type LoopTool } from "../src/index.js";
 import { collect, gateFor, last, noteTool, ofType } from "./helpers.js";
 
 const ok = { ok: true, checks: [{ part: "note", ok: true, evidence: "saved" }] };
@@ -279,3 +279,23 @@ describe("P6: the nonce never reaches a tool", () => {
   });
 });
 
+
+describe("L17, L21: the history only grows at the end between trims", () => {
+  it("keeps each step's history a byte-identical prefix of the next, except at a few trims", async () => {
+    const page = 3900;
+    const note = noteTool((args) => ({ ok: true, summary: `read ${String(args.text)}`, untrusted: String(args.text).at(-1)?.repeat(page) }));
+    const steps = Array.from({ length: 20 }, (_, i) => save(`page ${i}`));
+    const { loop, mind } = await setup([note.tool], [...steps, finish], { maxSteps: 21 });
+    await collect(loop.run("Read 20 pages."));
+    expect(mind.seen.length).toBe(21);
+    let trims = 0;
+    for (let i = 1; i < mind.seen.length; i++) {
+      const before = mind.seen[i - 1] ?? [];
+      const after = mind.seen[i] ?? [];
+      expect(after.reduce((sum, m) => sum + (m.content?.length ?? 0), 0)).toBeLessThanOrEqual(LIMITS.history);
+      if (JSON.stringify(after.slice(0, before.length)) !== JSON.stringify(before)) trims++;
+    }
+    expect(trims).toBeGreaterThan(0);
+    expect(trims).toBeLessThanOrEqual(Math.ceil(((20 * page) / LIMITS.history) * 2));
+  });
+});
