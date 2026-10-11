@@ -2,7 +2,7 @@
 // the action foxgate judged, check the result, repeat. Each step is an event.
 import type { Action, Gate } from "foxgate";
 import { FoxloopError } from "./errors.js";
-import { LIMITS, fitHistory, newNonce, plannerPrompt, resultText, type Message } from "./prompt.js";
+import { LIMITS, fitHistory, newNonce, plannerPrompt, resultText, skippedText, type Message } from "./prompt.js";
 import { checkArgs } from "./schema.js";
 import { FINISH, defineTools } from "./tools.js";
 import type { CheckResult, LoopTool, ToolContext, ToolOutput } from "./types.js";
@@ -30,7 +30,7 @@ export type BlockReason = "max-steps" | "repeated-call" | "repeated-failure" | "
   | "gate-mismatch" | "gate-error" | "approval-denied" | "approval-unavailable" | "approval-error" | "trail-failed" | "budget";
 
 /** Why a tool result failed before or while the tool ran. */
-export type ResultReason = "invalid-args" | "unknown-tool" | "tool-error" | "failed" | "gate-deny";
+export type ResultReason = "invalid-args" | "unknown-tool" | "tool-error" | "failed" | "gate-deny" | "skipped";
 
 export type LoopEvent =
   | { type: "plan"; step: number; text: string | null; calls: { id: string; name: string; args: string }[]; provider?: string; tier?: string }
@@ -58,6 +58,18 @@ export interface LoopOptions {
   tools: LoopTool[];
   /** The most model calls in one run. Default 20. */
   maxSteps?: number;
+  /**
+   * The most tool calls the loop runs from one model reply. Default 4. A
+   * failed call, a call that sends or pays, or a result with `stopBatch`
+   * skips the rest (M3-M7). 1 keeps the "one tool at a time" prompt.
+   */
+  maxCallsPerTurn?: number;
+  /**
+   * A read tool with no required arguments, for example "snapshot". The
+   * loop runs it before the first model call when the gate allows it, so
+   * the model need not ask for the first read (A1-A7). Default: none.
+   */
+  firstRead?: string;
   /** Decides if `finish` passes. Default: the newest tool result must carry a passing check. */
   check?: (input: CheckInput) => CheckResult | Promise<CheckResult>;
   /** Called when the gate asks. Show `action` to the human; return the token from `host.approve`, or null for no. */
@@ -145,6 +157,13 @@ export function createLoop(options: LoopOptions): Loop {
   const maxSteps = options.maxSteps ?? 20;
   if (!Number.isInteger(maxSteps) || maxSteps < 1) throw new FoxloopError("bad-options", "maxSteps must be a whole number of 1 or more");
   const defs = defsOf(tools.values());
+  const maxCalls = options.maxCallsPerTurn ?? 4;
+  if (!Number.isInteger(maxCalls) || maxCalls < 1) throw new FoxloopError("bad-options", "maxCallsPerTurn must be a whole number of 1 or more");
+  const reader = options.firstRead === undefined ? undefined : tools.get(options.firstRead);
+  if (options.firstRead !== undefined && (reader?.scope !== "read" || checkArgs(reader.parameters, {}))) {
+    throw new FoxloopError("bad-options", `firstRead must name a read tool that needs no arguments, not "${options.firstRead}"`);
+  }
+  const last = [...tools.values()].filter((t) => t.scope === "submit" || t.scope === "pay").map((t) => t.name);
   let running = false;
 
   const now = options.now ?? Date.now;
@@ -191,11 +210,13 @@ export function createLoop(options: LoopOptions): Loop {
       return Promise.race([work, aborted]).finally(() => listener.stop && signal.removeEventListener("abort", listener.stop));
     };
     const nonce = newNonce();
-    const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce, { denials: Boolean(options.denials) }) }, { role: "user", content: `Goal: ${goal}` }];
+    const messages: Message[] = [{ role: "system", content: plannerPrompt(nonce, { denials: Boolean(options.denials), batch: { max: maxCalls, last } }) }, { role: "user", content: `Goal: ${goal}` }];
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
     // Gate denials in a row that went back to the model (G12, G13).
     let denied = 0;
     let lastCheck: CheckResult | undefined;
+    /** Why the rest of the current reply must not run (M3-M7). */
+    let endBatch: string | undefined;
     const blocked = (reason: BlockReason, text: string): LoopEvent => ({ type: "blocked", step, reason, message: text });
 
     /** Runs one tool call. Returns a stop event, or undefined to go on. */
@@ -230,6 +251,7 @@ export function createLoop(options: LoopOptions): Loop {
         const limit = options.denials.limit ?? DENY_LIMIT;
         if (++denied >= limit) return blocked("gate-deny", `${limit} actions in a row were denied. The last one: ${why}`);
         lastCheck = undefined;
+        endBatch = `the gate denied ${name}`;
         const summary = `The gate denied this action (${why}). Nothing ran. Choose another action that this run may do.`;
         messages.push({ role: "tool", tool_call_id: id, content: resultText(name, { ok: false, summary }, nonce) });
         yield { type: "tool-result", step, id, name, ok: false, summary, reason: "gate-deny" };
@@ -266,12 +288,15 @@ export function createLoop(options: LoopOptions): Loop {
       if (ran.error !== undefined) return yield* failed(fail("tool-error", "The tool threw an error. Its message is below.", ran.error));
       const output: ToolOutput = ran.value;
       lastCheck = output.check;
+      if (output.ok && output.stopBatch) endBatch = `after ${name}, ${output.stopBatch.slice(0, LIMITS.error)}`;
+      else if (output.ok && [tool.scope, judged.scope].some((s) => s === "submit" || s === "pay")) endBatch = `${name} can send or pay, so it must be the last call`;
       messages.push({ role: "tool", tool_call_id: id, content: resultText(name, output, nonce) });
       const result: LoopEvent = { type: "tool-result", step, id, name, ok: output.ok, summary: output.summary.slice(0, LIMITS.summary), ...(output.ok ? {} : { reason: "failed" as const }), data: output.data };
       return yield* failed(result);
     }
     /** Yields a result and counts failures in a row. */
     async function* failed(result: LoopEvent): AsyncGenerator<LoopEvent, LoopEvent | undefined, undefined> {
+      if (result.type === "tool-result" && !result.ok) endBatch = `${result.name} failed`;
       yield result;
       failures = result.type === "tool-result" && !result.ok ? failures + 1 : 0;
       return failures >= FAIL_LIMIT ? blocked("repeated-failure", `${FAIL_LIMIT} tool results failed in a row`) : undefined;
@@ -288,7 +313,36 @@ export function createLoop(options: LoopOptions): Loop {
       return checkFails >= CHECK_LIMIT ? blocked("check-failed", failedChecks(check)) : undefined;
     }
 
+    /** Runs `firstRead` when the gate allows it. A deny, an ask or a tab with no page skips it (A2). */
+    async function* firstRead(): AsyncGenerator<LoopEvent, LoopEvent | undefined, undefined> {
+      if (!reader || (options.budget?.toolCalls !== undefined && runs >= options.budget.toolCalls)) return undefined;
+      const [id, name, ctx] = ["read_0", reader.name, { signal, step, goal }];
+      const prepared = await attempt(async () => (reader.prepare ? reader.prepare({}, ctx) : {}));
+      const domain = prepared.error === undefined ? await attempt(async () => reader.domain(prepared.value, ctx)) : prepared;
+      if (domain.error !== undefined || prepared.value === undefined) return undefined;
+      const action: Action = { tool: name, args: prepared.value, domain: domain.value, scope: reader.scope };
+      const checked = await attempt(() => options.gate.check(action));
+      if (checked.error !== undefined) return blocked("gate-error", checked.error);
+      const decision = checked.value;
+      yield { type: "tool-call", step, id, name, args: {} };
+      yield { type: "decision", step, id, via: "check", decision: decision.decision, ...(decision.decision === "deny" ? { reason: decision.reason } : {}), action };
+      if (decision.decision !== "allow" || decision.action.tool !== name) return undefined;
+      const judged = decision.action;
+      runs++;
+      const ran = await race(attempt(() => reader.run(judged.args, { ...ctx, domain: judged.domain })));
+      if (ran === ABORTED) return { type: "aborted", step };
+      const output: ToolOutput = ran.value ?? { ok: false, summary: "The tool threw an error.", untrusted: ran.error };
+      yield { type: "tool-result", step, id, name, ok: output.ok, summary: output.summary.slice(0, LIMITS.summary), ...(output.ok ? {} : { reason: "failed" as const }) };
+      if (!output.ok) return undefined;
+      lastCheck = output.check;
+      messages.push({ role: "assistant", content: null, tool_calls: [{ id, type: "function", function: { name, arguments: "{}" } }] });
+      messages.push({ role: "tool", tool_call_id: id, content: resultText(name, output, nonce) });
+      return undefined;
+    }
+
     try {
+      const read = yield* firstRead();
+      if (read) return yield read;
       while (true) {
         if (signal.aborted) return yield { type: "aborted", step };
         if (step >= maxSteps) return yield blocked("max-steps", `the planner made ${maxSteps} calls without a passing finish`);
@@ -311,15 +365,30 @@ export function createLoop(options: LoopOptions): Loop {
         messages.push({ role: "assistant", content: reply.message.content, ...(calls.length ? { tool_calls: calls } : {}) });
         let stop: LoopEvent | undefined;
         if (calls.length === 0) stop = yield* finish(reply.message.content ?? "");
-        for (const c of calls) {
+        endBatch = undefined;
+        const ran: string[] = [];
+        const keys = new Set<string>();
+        for (const [index, c] of calls.entries()) {
           if (stop) break;
+          const why = endBatch ?? (index >= maxCalls ? `this reply asked for more than ${maxCalls} calls` : undefined);
+          if (why) {
+            // A skipped call still gets a result, so the model knows it did not run (M6).
+            const content = skippedText(c.function.name, why, ran, nonce);
+            messages.push({ role: "tool", tool_call_id: c.id, content });
+            yield { type: "tool-result", step, id: c.id, name: c.function.name, ok: false, summary: content.split("\n")[1] ?? why, reason: "skipped" };
+            continue;
+          }
+          ran.push(c.function.name);
           if (c.function.name === FINISH) {
             const args = parse(c.function.arguments) as { summary?: unknown };
             stop = yield* finish(typeof args?.summary === "string" ? args.summary : c.function.arguments, c.id);
+            endBatch = "finish ends the reply";
             continue;
           }
           const key = `${c.function.name} ${c.function.arguments}`;
-          repeats = key === lastKey ? repeats + 1 : 1;
+          // Identical calls in one reply count once, so a reply cannot hit the limit alone (M9).
+          if (!keys.has(key)) repeats = key === lastKey ? repeats + 1 : 1;
+          keys.add(key);
           lastKey = key;
           if (signal.aborted) stop = { type: "aborted", step };
           else stop = repeats >= REPEAT_LIMIT

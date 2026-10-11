@@ -29,6 +29,11 @@ export interface ToolOutput {
   data?: unknown;
   /** A check of the result. The newest check decides if `finish` can pass. */
   check?: CheckResult;
+  /**
+   * Why the later calls of the same reply must not run, for example "the tab
+   * opened a new page". Host text: the model reads it. The loop skips them (M4).
+   */
+  stopBatch?: string;
 }
 
 /** What a tool gets besides its arguments. */
