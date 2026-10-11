@@ -333,8 +333,10 @@ describe("A1, A3-A5, M4: open_url reads the page it opened", () => {
     expect(out.untrusted).toMatch(/sam@example\.com/);
   });
 
-  it("M4: snapshot ends the batch", async () => {
-    const { tool } = fakes([page([control(1, "Email")])]);
+  it("M4: snapshot ends the batch only on a first read or a changed page", async () => {
+    const { tool } = fakes([page([control(1, "Email")]), page([control(1, "Email")]), page([control(1, "Delete account")])]);
+    expect((await tool("snapshot").run({}, ctx)).stopBatch).toBeTruthy();
+    expect((await tool("snapshot").run({}, ctx)).stopBatch).toBeUndefined();
     expect((await tool("snapshot").run({}, ctx)).stopBatch).toBeTruthy();
   });
 

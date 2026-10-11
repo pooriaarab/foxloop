@@ -123,6 +123,20 @@ describe("M6: a skipped call is never reported as done", () => {
   });
 });
 
+describe("M9: identical calls in one reply count once toward L2", () => {
+  it("runs three identical calls of one reply, and still stops a repeat across replies", async () => {
+    const note = noteTool();
+    const { gate } = await gateFor([note.tool]);
+    const mind = scriptedMind([{ calls: [save("s"), save("s"), save("s")] }, { calls: [finish] }]);
+    const events = await collect(createLoop({ mind, gate, tools: [note.tool], check: () => ok }).run("Scroll."));
+    expect(note.runs.length).toBe(3);
+    expect(last(events)?.type).toBe("done");
+    const again = scriptedMind([{ calls: [save("s"), save("s")] }, { calls: [save("s")] }, { calls: [save("s")] }]);
+    const stopped = await collect(createLoop({ mind: again, gate, tools: [note.tool] }).run("Scroll."));
+    expect(last(stopped)).toMatchObject({ type: "blocked", reason: "repeated-call" });
+  });
+});
+
 describe("M7: the cap and finish", () => {
   it("skips the calls past maxCallsPerTurn", async () => {
     const note = noteTool();
