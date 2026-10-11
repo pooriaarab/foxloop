@@ -35,26 +35,41 @@ function item(kind, text, className = "") {
   return li;
 }
 
+// A letter avatar for the site. The hue comes from the name, so one site
+// keeps one color. style.setProperty is CSSOM, which the CSP allows.
+function siteIcon(site) {
+  const box = Object.assign(document.createElement("span"), { className: "site-icon", textContent: (site[0] ?? "?").toUpperCase() });
+  let hue = 0;
+  for (const c of site) hue = (hue * 31 + c.charCodeAt(0)) % 360;
+  box.style.setProperty("--hue", String(hue));
+  box.setAttribute("aria-hidden", "true");
+  return box;
+}
+const el = (tag, className, textContent) => Object.assign(document.createElement(tag), { className, textContent });
+
+// A foxmate approval card: the site, one plain line, the exact action,
+// then Deny (ghost) and Approve (primary).
 function approval(event) {
-  const li = item("Approve?", ` ${event.action.tool} on ${event.action.domain}`, "ask");
-  const detail = document.createElement("p");
-  detail.className = "detail";
-  detail.textContent = event.detail ?? "";
-  const pre = document.createElement("pre");
-  pre.textContent = event.text ?? JSON.stringify(event.action, null, 1);
-  const row = document.createElement("div");
-  row.className = "row";
-  for (const [label, op] of [["Approve", "approve"], ["Deny", "deny"]]) {
-    const button = document.createElement("button");
-    button.textContent = label;
+  const li = el("li", "ask");
+  const head = el("div", "ask-head");
+  head.append(siteIcon(event.action.domain), el("span", "site", event.action.domain));
+  // The detail is already a plain sentence; without one, name the tool.
+  li.append(head, event.detail ? el("p", "detail", event.detail) : el("p", "what", `Wants to ${event.action.tool.replaceAll("_", " ")}.`));
+  li.append(el("pre", "", event.text ?? JSON.stringify(event.action, null, 1)));
+  const row = el("div", "answers");
+  for (const [label, op, className] of [["Deny", "deny", "ghost"], ["Approve", "approve", "primary"]]) {
+    const button = el("button", className, label);
     button.dataset.op = op;
     button.addEventListener("click", () => {
       port.postMessage({ op, requestId: event.requestId });
-      row.replaceWith(document.createTextNode(op === "approve" ? "Approved." : "Denied."));
+      li.classList.add("answered");
+      row.replaceWith(el("p", "answer", op === "approve" ? "Approved." : "Denied."));
     });
     row.append(button);
   }
-  li.append(...(event.detail ? [detail] : []), pre, row);
+  li.append(row);
+  $("events").append(li);
+  li.scrollIntoView({ block: "nearest" });
 }
 
 function show(event) {
