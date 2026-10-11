@@ -16,6 +16,8 @@ export interface PawLike {
   act: typeof foxpaw.act;
   settle(tabId: number, options?: { frameId?: number }, browser?: ScriptingApi): Promise<number>;
   runTask(tabId: number, goal: string, options?: RunOptions): Promise<RunResult>;
+  pageText: typeof foxpaw.pageText;
+  changeText: typeof foxpaw.changeText;
 }
 
 export interface BrowserToolsOptions {
@@ -28,7 +30,6 @@ export interface BrowserToolsOptions {
   paw?: PawLike;
 }
 
-const MAX_CONTROLS = 40;
 const LOAD_WAIT_MS = 15_000;
 const OPS = ["type", "select", "check", "uncheck", "date", "scroll"] as const;
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -49,18 +50,8 @@ const hostOf = (url: string | undefined): string => {
 
 const readSummary = (page: Snapshot) => `Read the page: ${page.controls.length} controls${page.more ? "; the page can scroll" : ""}.`;
 
-/** The page as text for the model. All of it comes from the page, so it is untrusted. */
-function pageText(page: Snapshot): string {
-  const lines = page.controls.slice(0, MAX_CONTROLS).map((c) => {
-    const flags = [c.required && "required", c.disabled && "disabled", c.checked && "checked", c.submit && "sends the form"].filter(Boolean);
-    const options = c.options?.length ? ` options=${JSON.stringify(c.options.map((o) => o.value))}` : "";
-    // A secret control's value never goes to the model, even when a snapshot holds one (A4).
-    return `[${c.id}] ${c.role} "${c.label}"${c.value && !c.secret ? ` value="${c.value}"` : ""}${options}${flags.length ? ` (${flags.join(", ")})` : ""}`;
-  });
-  const more = page.controls.length - MAX_CONTROLS;
-  if (more > 0) lines.push(`... ${more} more controls`);
-  return [`Title: ${page.title}`, `Address: ${page.url}`, "Controls:", ...lines, "Text:", page.text].join("\n");
-}
+/** The page with every secret value masked, for page text. A secret value never goes to the model, even when a snapshot holds one (A4, B12). */
+const masked = (page: Snapshot): Snapshot => ({ ...page, controls: page.controls.map((c) => (c.secret && c.value ? { ...c, value: "•••" } : c)) });
 
 /** Why calls planned on `before` must not run on `after`: the address changed, or a control is gone or is another one (M4). */
 function changed(before: Snapshot, after: Snapshot | undefined): string | undefined {
@@ -78,6 +69,8 @@ function changed(before: Snapshot, after: Snapshot | undefined): string | undefi
  */
 export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   const paw: PawLike = options.paw ?? foxpaw;
+  /** The page as text for the model. All of it comes from the page, so it is untrusted (P8). */
+  const pageText = (page: Snapshot) => paw.pageText(masked(page));
   const api = () => options.browser ?? (globalThis as unknown as { browser: ScriptingApi & { tabs: TabsLike } }).browser;
   /** The newest snapshot. `generation` grows with each read, so an old approval can tell. */
   let last: { tabId: number; page: Snapshot; generation: number } | undefined;
@@ -141,8 +134,10 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     await paw.settle(tabId, { frameId: control.frameId }, api());
     const after = await read(tabId).catch(() => undefined);
     const sent = result.submitted ? " The form was sent." : "";
-    const stopBatch = result.submitted ? "the form was sent" : changed(page, after);
-    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: after ? pageText(after) : undefined, ...(stopBatch ? { stopBatch } : {}) };
+    // A diff on the same document; the full page after a navigation, a reload or a big change (B9-B11).
+    const change = after ? paw.changeText(masked(page), masked(after), { target: control.id }) : undefined;
+    const stopBatch = result.submitted ? "the form was sent" : changed(page, after) ?? (change?.full ? "the page changed" : undefined);
+    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: change?.text, ...(stopBatch ? { stopBatch } : {}) };
   };
 
   const control = { controlId: { type: "string", description: "The control id from the last snapshot, for example \"0:12\"." } };
