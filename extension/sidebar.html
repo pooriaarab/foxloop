@@ -6,13 +6,16 @@
     <link rel="stylesheet" href="sidebar.css" />
   </head>
   <body>
-    <h1>foxloop</h1>
-    <form id="goal-form">
+    <header>
+      <img class="mark" src="icons/icon-48.png" alt="" width="22" height="22" />
+      <h1>foxloop</h1>
+    </header>
+    <form id="goal-form" class="card">
       <label for="goal">Goal for the current tab</label>
       <textarea id="goal" rows="3" required>name: Sam Lee, email: sam@example.com, plan Team, accept the terms</textarea>
       <div class="row">
-        <button id="run" type="submit">Run</button>
-        <button id="stop" type="button" disabled>Stop</button>
+        <button id="run" class="primary" type="submit">Run</button>
+        <button id="stop" class="ghost" type="button" disabled>Stop</button>
       </div>
     </form>
     <details id="settings">
@@ -24,7 +27,7 @@
       <div data-for="openai"><label for="base-url">Base URL</label><input id="base-url" /></div>
       <div data-for="openai anthropic">
         <label for="api-key">API key (kept until Firefox closes)</label><input id="api-key" type="password" autocomplete="off" />
-        <label class="inline"><input id="consent" type="checkbox" /> Send page text to this provider</label>
+        <label class="switch"><input id="consent" type="checkbox" /> Send page text to this provider</label>
       </div>
       <div data-for="scripted"><label for="script">Script (JSON tool calls)</label><textarea id="script" rows="6"></textarea></div>
     </details>
