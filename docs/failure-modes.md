@@ -167,6 +167,7 @@ short question to the user, waits, and gives the answer back as the result.
 | E2 | An injection page asks the planner to open a link that sends data to another host. The gate says `deny`, and the trail records it. | E2E `injected link is denied` |
 | E3 | An injection page asks the planner to click a send button. The human denies the approval, and the trail records it. | E2E `injected send is refused` |
 | E5 | The user picks the Ollama planner with a `-cloud` model (for example `gpt-oss:120b-cloud`). Ollama sends it to its own servers, but foxmind marks Ollama as local, so private mode lets page text leave. | The demo refuses a model name that ends in `-cloud` for the local planners, before any model call. | E2E `private mode refuses an Ollama cloud model` |
+| E6 | A run leaves its tab open. On Ichabod a session gets slower with each open tab: in slow sessions each new tab took 2-3x longer than the one before (0.6 s up to 38-54 s), and `open()` timed out at 30 s about one CI run in three. | Each run closes the tab it opened before the next run opens one, and the test ends with the tabs it had before the first run. | E2E `every run closes its tab` |
 | E4 | When Ollama runs with a small tool-calling model, one real task runs. The result is recorded as it is, pass or fail. | `pnpm e2e:ollama` |
 
 ## AMO release build and listed submission (`scripts/amo-listing.mjs`)
