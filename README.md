@@ -295,7 +295,7 @@ throw, is a failed result and not a stop. A run asks at most `max` questions
 | `defineTools(tools)` | Checks the tools. Throws `FoxloopError` `bad-tool` or `bad-schema`. |
 | `checkArgs(schema, args)` | `null` when the arguments fit, else the path of the first error. |
 | `scriptedMind(steps)` | A planner with fixed replies, for tests and offline demos. `seen` holds the messages of each call. |
-| `plannerPrompt(nonce)`, `resultText(tool, output, nonce)`, `fitHistory(messages, nonce)`, `newNonce()`, `LIMITS` | The prompt and the result text. All the words the planner reads from foxloop are in `src/prompt.ts`. |
+| `plannerPrompt(options)`, `goalMessage(goal, nonce)`, `resultText(tool, output, nonce)`, `fitHistory(messages, nonce)`, `newNonce()`, `LIMITS` | The prompt and the result text. The system prompt holds no nonce, so a server can reuse its cached prefix across runs; the goal message gives the run's data marker. All the words the planner reads from foxloop are in `src/prompt.ts`. |
 | `FoxloopError` | `code` is `bad-tool`, `bad-schema`, `bad-options` or `busy`. |
 
 ### Demo extension
