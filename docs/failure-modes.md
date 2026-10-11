@@ -80,6 +80,23 @@ calls of one reply. A "skip" is a call of the batch that does not run.
 | A6 | The first read breaks the stable history (L17): it goes in the system prompt, or in front of older messages. | The read is an assistant call and a `tool` message right after the goal. The trim can cut its page text as for any other result. | Isolated `tests/batch.test.ts` |
 | A7 | `firstRead` names a tool that does not exist, is not a read, or needs arguments. | `createLoop` throws `bad-options`. | Isolated `tests/batch.test.ts` |
 
+## Ask the user
+
+`askUserTool({ ask })` gives the planner one tool, `ask_user`. It shows one
+short question to the user, waits, and gives the answer back as the result.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| U1 | The planner guesses a detail that only the user knows (a size, an OK to spend more than the goal allows, a sign-in), and acts on the guess. | `ask_user` sends the question to the host's `ask` and waits. The answer comes back as the result summary, as words from the user. | Isolated `tests/ask.test.ts` |
+| U2 | The planner plans more calls after `ask_user` in the same reply. They run before the answer is in, on a plan the answer can change. | The result of `ask_user` carries `stopBatch`, so the rest of the reply is skipped (M4, M6). | Isolated `tests/ask.test.ts` |
+| U3 | The question is empty, or very long, so the user gets nothing to answer or a wall of text. | The schema needs 1 to 300 characters. Other arguments never reach the host (R4). | Isolated `tests/ask.test.ts` |
+| U4 | The user does not answer, closes the question, or `ask` throws. The run waits forever, or stops with an error. | An empty answer, `undefined` or a throw is a failed result that says the user did not answer. The planner goes on with what it knows. A throw is not a stop. | Isolated `tests/ask.test.ts` |
+| U5 | The user stops the run while the question waits. | `ask` gets the run's signal. The loop ends `aborted` at once (L9), also when `ask` ignores the signal. | Isolated `tests/ask.test.ts` |
+| U6 | The planner asks again and again in place of acting, and each question holds the user. | After `max` questions in one run (default 3), `ask_user` fails without asking, and says to act on what the planner knows. The count starts again at each run. | Isolated `tests/ask.test.ts` |
+| U7 | A long answer fills the context. | The answer is cut to 500 characters. | Isolated `tests/ask.test.ts` |
+| U8 | The answer holds a data marker or angle brackets, and closes a data block. | The answer is in the summary, and every `<` and `>` in a summary is escaped (P5). | Isolated `tests/ask.test.ts` |
+| U9 | `ask_user` skips the gate, so a host cannot turn questions off or log them. | `ask_user` is a `read` tool on its own domain (default `user.foxloop`). The host grants that domain, and the gate and the trail see each question. | Isolated `tests/ask.test.ts` |
+
 ## Gate and approval
 
 | # | Failure mode | Wanted behaviour | Test |
