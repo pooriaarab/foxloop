@@ -32,7 +32,7 @@ export function plannerPrompt(nonce: string, options: { denials?: boolean; batch
     "",
     "Rules:",
     batch
-      ? `1. You may call up to ${batch.max} tools in one reply. They run in order. ${batch.last.length ? `A call to ${batch.last.join(", ")} must be the last one. ` : ""}If a call fails or changes the page, foxloop skips the calls after it and tells you which ran.`
+      ? `1. You may call up to ${batch.max} tools in one reply. They run in order. ${batch.last.length ? `A call to ${batch.last.join(", ")} must be the last one. ` : ""}If a call fails, opens a page, or finds that the page changed, foxloop skips the calls after it and tells you which ran.`
       : "1. Call one tool at a time. Read its result before you choose the next tool.",
     "2. Use only the tools you are given. Give arguments that fit each tool's schema.",
     "3. When the goal is reached, call the tool \"finish\" with a short summary. foxloop then checks the result.",

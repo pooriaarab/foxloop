@@ -156,8 +156,12 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       run: (_args, ctx: ToolContext) => serial(async () => {
         const refused = await moved(ctx);
         if (refused) return refused;
-        const page = await read(await options.tabId());
-        return { ok: true, summary: readSummary(page), untrusted: pageText(page), stopBatch: "the page was read again" };
+        const tabId = await options.tabId();
+        const before = last?.tabId === tabId ? last.page : undefined;
+        const page = await read(tabId);
+        // A read of the same page changes nothing, so [snapshot, act] runs on (M4).
+        const stopBatch = before ? changed(before, page) : "the page was read for the first time";
+        return { ok: true, summary: readSummary(page), untrusted: pageText(page), ...(stopBatch ? { stopBatch } : {}) };
       }),
     },
     {

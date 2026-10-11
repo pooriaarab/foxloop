@@ -367,6 +367,7 @@ export function createLoop(options: LoopOptions): Loop {
         if (calls.length === 0) stop = yield* finish(reply.message.content ?? "");
         endBatch = undefined;
         const ran: string[] = [];
+        const keys = new Set<string>();
         for (const [index, c] of calls.entries()) {
           if (stop) break;
           const why = endBatch ?? (index >= maxCalls ? `this reply asked for more than ${maxCalls} calls` : undefined);
@@ -385,7 +386,9 @@ export function createLoop(options: LoopOptions): Loop {
             continue;
           }
           const key = `${c.function.name} ${c.function.arguments}`;
-          repeats = key === lastKey ? repeats + 1 : 1;
+          // Identical calls in one reply count once, so a reply cannot hit the limit alone (M9).
+          if (!keys.has(key)) repeats = key === lastKey ? repeats + 1 : 1;
+          keys.add(key);
           lastKey = key;
           if (signal.aborted) stop = { type: "aborted", step };
           else stop = repeats >= REPEAT_LIMIT
