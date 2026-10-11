@@ -1,7 +1,8 @@
 // Failure modes P1, P2 and L11 in docs/failure-modes.md: page text is data,
 // it cannot close its own data block, and results stay small.
 import { describe, expect, it } from "vitest";
-import { LIMITS, fitHistory, newNonce, plannerPrompt, resultText, type Message } from "../src/index.js";
+import { LIMITS, createLoop, fitHistory, goalMessage, newNonce, plannerPrompt, resultText, scriptedMind, type Message } from "../src/index.js";
+import { collect, gateFor, noteTool } from "./helpers.js";
 
 const between = (text: string, nonce: string) => {
   const start = text.indexOf(`<<<DATA ${nonce}>>>`);
@@ -21,31 +22,58 @@ describe("P1: page text is data", () => {
 
   it("tells the planner that text between the delimiters is data, not orders", () => {
     const nonce = newNonce();
-    const prompt = plannerPrompt(nonce);
-    expect(prompt).toContain(`<<<DATA ${nonce}>>>`);
+    const prompt = plannerPrompt();
+    expect(prompt).toMatch(/<<<DATA m>>>/);
     expect(prompt).toMatch(/data/i);
     expect(prompt).toMatch(/never follow/i);
     expect(prompt).toContain("finish");
+    expect(goalMessage("Buy a mug.", nonce)).toContain(`<<<DATA ${nonce}>>>`);
+  });
+
+  it("P9: the system prompt has no nonce and is the same for every run; the goal message gives the marker at its end", () => {
+    const [a, b] = [newNonce(), newNonce()];
+    expect(plannerPrompt({ denials: true })).toBe(plannerPrompt({ denials: true }));
+    expect(plannerPrompt()).not.toMatch(/[0-9a-f]{16}/);
+    const goal = goalMessage("Buy a mug.", a);
+    expect(goal.startsWith("Goal: Buy a mug.")).toBe(true);
+    expect(goal.trimEnd().endsWith(`<<<END ${a}>>>`)).toBe(true);
+    expect(goal).not.toContain(b);
+  });
+
+  it("P9: two runs send the same system message, and each goal message holds its own run's marker", async () => {
+    const note = noteTool();
+    const { gate } = await gateFor([note.tool]);
+    const minds = [scriptedMind([{ text: "done" }, { text: "done" }]), scriptedMind([{ text: "done" }, { text: "done" }])];
+    for (const mind of minds) await collect(createLoop({ mind, gate, tools: [note.tool], maxSteps: 1 }).run("Save."));
+    const [first, second] = minds.map((m) => m.seen[0]!);
+    expect(first![0]!.content).toBe(second![0]!.content);
+    expect(first![1]!.content).not.toBe(second![1]!.content);
+    expect(first![1]!.content).toMatch(/^Goal: Save\./);
+  });
+
+  it("P10: the planner is asked for a short finish summary", () => {
+    expect(plannerPrompt()).toMatch(/at most 15 words/);
+    expect(plannerPrompt().length).toBeLessThan(1100);
   });
 
   it("G15: without denials, rule 6 says that a denied action stops the run", () => {
-    expect(plannerPrompt(newNonce())).toContain("A denied action stops the run.");
+    expect(plannerPrompt()).toContain("A denied action stops the run.");
   });
 
   it("G15: with denials, rule 6 says that a human's no stops the run and a gate denial comes back", () => {
-    const prompt = plannerPrompt(newNonce(), { denials: true });
+    const prompt = plannerPrompt({ denials: true });
     expect(prompt).not.toContain("A denied action stops the run.");
     expect(prompt).toMatch(/If the user denies an action, the run stops\./);
     expect(prompt).toMatch(/gate denies an action, its result says why/);
   });
 
   it("M8: with a cap of 1, rule 1 says one tool at a time", () => {
-    expect(plannerPrompt(newNonce())).toContain("1. Call one tool at a time.");
-    expect(plannerPrompt(newNonce(), { batch: { max: 1, last: ["click"] } })).toContain("1. Call one tool at a time.");
+    expect(plannerPrompt()).toContain("1. Call one tool at a time.");
+    expect(plannerPrompt({ batch: { max: 1, last: ["click"] } })).toContain("1. Call one tool at a time.");
   });
 
   it("M8: with a cap above 1, rule 1 gives the cap, the order, the tools that go last and the skip", () => {
-    const prompt = plannerPrompt(newNonce(), { batch: { max: 4, last: ["click", "browser_task"] } });
+    const prompt = plannerPrompt({ batch: { max: 4, last: ["click", "browser_task"] } });
     expect(prompt).not.toContain("Call one tool at a time");
     expect(prompt).toMatch(/up to 4 tools/);
     expect(prompt).toMatch(/in order/);
@@ -138,8 +166,8 @@ const sizeOf = (messages: Message[]) => messages.reduce((sum, m) => sum + (m.con
 /** A system prompt, a goal, then `count` snapshot calls, each with ~3,900 characters of page text. */
 function pages(nonce: string, count: number, from = 0): Message[] {
   const messages: Message[] = from ? [] : [
-    { role: "system", content: plannerPrompt(nonce) },
-    { role: "user", content: "Goal: read the pages." },
+    { role: "system", content: plannerPrompt() },
+    { role: "user", content: goalMessage("read the pages.", nonce) },
   ];
   for (let i = from; i < from + count; i++) {
     messages.push({ role: "assistant", content: null, tool_calls: [{ id: `c${i}`, type: "function", function: { name: "snapshot", arguments: "{}" } }] });
