@@ -1,7 +1,7 @@
 // The browser tool pack: foxpaw's read, act and run-task calls as loop
 // tools. Every page function is bundled in foxpaw; no tool runs model code.
 import * as foxpaw from "foxpaw";
-import type { ActRequest, Chooser, RunOptions, RunResult, ScriptingApi, Snapshot } from "foxpaw";
+import type { ActRequest, Chooser, FormPlan, RunOptions, RunResult, ScriptingApi, Snapshot } from "foxpaw";
 import type { LoopTool, ToolContext, ToolOutput } from "./types.js";
 
 /** The `browser.tabs` calls the pack uses. */
@@ -16,6 +16,7 @@ export interface PawLike {
   act: typeof foxpaw.act;
   settle(tabId: number, options?: { frameId?: number }, browser?: ScriptingApi): Promise<number>;
   runTask(tabId: number, goal: string, options?: RunOptions): Promise<RunResult>;
+  preview: typeof foxpaw.preview;
   pageText: typeof foxpaw.pageText;
   changeText: typeof foxpaw.changeText;
 }
@@ -214,16 +215,40 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       parameters: { type: "object", properties: { goal: { type: "string", minLength: 1, maxLength: 1000 } }, required: ["goal"] },
       scope: "submit",
       domain: tabDomain,
-      describe: async (args) => {
-        const tab = await api().tabs.get(await options.tabId());
-        return `let foxpaw fill the form on ${tab.url} for the goal "${String(args.goal)}". foxpaw picks each field and click itself and may send the form. This one approval covers all of them.`;
+      // foxpaw's preview of the form: the gate judges and the human approves where it sends (G16).
+      prepare: async (args) => serial(async () => {
+        const page = await read(await options.tabId());
+        const plan = await paw.preview(page, String(args.goal), options.chooser ? { chooser: options.chooser } : {});
+        const form: TaskForm = { url: page.url, ...plan };
+        return { ...args, form };
+      }),
+      describe: (args) => {
+        const form = args.form as TaskForm | undefined;
+        if (!form) throw new Error("The call has no form preview.");
+        const fields = form.fields.map((f) => `${f.label}: ${JSON.stringify(f.value)}`).join("; ");
+        const sends = form.destination ? `It sends to ${form.destination}${form.button ? ` with ${JSON.stringify(form.button)}` : ""}.` : form.sends ? "foxpaw found no destination to send to." : "It does not send the form.";
+        return [
+          `let foxpaw fill the form on ${form.url} for the goal "${String(args.goal)}".`, sends,
+          fields ? `Fields: ${fields}.` : "",
+          form.blocked ? `foxpaw expects to stop here: ${form.blocked}.` : "",
+          `foxpaw picks each field and click itself${form.destination ? " and sends nowhere else" : ""}. This one approval covers all of them.`,
+        ].filter(Boolean).join(" ");
       },
       run: (args, ctx: ToolContext) => serial(async () => {
         const refused = await moved(ctx);
         if (refused) return refused;
+        const form = args.form as TaskForm | undefined;
+        if (!form) return { ok: false, summary: "The call has no form preview, so no destination was approved. Nothing ran." };
+        // The goal sends, and nothing names where to: there is no destination to approve (G17).
+        if (form.sends && !form.destination) {
+          return { ok: false, summary: "foxpaw found no destination for this form, so there is no destination to approve. Nothing ran.", ...(form.blocked ? { untrusted: `blocked: ${form.blocked}` } : {}) };
+        }
         const tabId = await options.tabId();
         last = undefined;
-        const result = await paw.runTask(tabId, String(args.goal), { browser: api(), signal: ctx.signal, ...(options.chooser ? { chooser: options.chooser } : {}) });
+        // The approved destination is the only one foxpaw may send to (foxpaw C32).
+        const result = await paw.runTask(tabId, String(args.goal), {
+          browser: api(), signal: ctx.signal, ...(options.chooser ? { chooser: options.chooser } : {}), ...(form.destination ? { allowHosts: [form.destination] } : {}),
+        });
         // foxpaw's reason and message can quote the page, so they go with the untrusted lines.
         const summary = `foxpaw ${result.status}; verified: ${result.verified}; ${result.steps.length} steps; ${result.unmatched.length} parts not matched.`;
         const check = { ok: result.verified, checks: result.checks, ...(result.problem ? { problem: result.problem } : {}) };
@@ -233,6 +258,12 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       }),
     },
   ];
+}
+
+/** What a `browser_task` call fills and where it sends, as foxgate judges and the human approves it (G16). */
+export interface TaskForm extends FormPlan {
+  /** The page address the preview read. */
+  url: string;
 }
 
 /** The control that an `act` or `click` call is pinned to, as foxgate judges and the human approves it. */

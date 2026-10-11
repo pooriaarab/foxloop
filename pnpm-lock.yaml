@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       foxpaw:
-        specifier: ^0.1.3
-        version: 0.1.3
+        specifier: ^0.1.7
+        version: 0.1.7
     devDependencies:
       '@huggingface/transformers':
         specifier: ^4.3.1
@@ -22,8 +22,8 @@ importers:
         specifier: ^24.19.1
         version: 24.19.1
       create-foxkit:
-        specifier: ^0.1.0
-        version: 0.1.0(yauzl@3.4.0)
+        specifier: ^0.1.2
+        version: 0.1.2(yauzl@3.4.0)
       esbuild:
         specifier: ^0.28.2
         version: 0.28.2
@@ -1116,8 +1116,8 @@ packages:
   core-util-is@1.0.3:
     resolution: {integrity: sha512-ZQBvi1DcpJ4GDqanjucZ2Hj3wEO5pZDS89BWbkcrvdxksJorwUDDZamX9ldFkp9aw2lmBDLgkObEA4DWNJ9FYQ==}
 
-  create-foxkit@0.1.0:
-    resolution: {integrity: sha512-kJyZJJC6vD7JOhvECrmOHQXQMnzwgjVmlN3rfDFp0v/DspwBd5DMPeSbOpgF8LLRQutqVr1jzs06K648W8rtaA==}
+  create-foxkit@0.1.2:
+    resolution: {integrity: sha512-0JUuCvn3nEoxxqY5egMikpqOKGJWG40G0YGs0r+ZS/tqQcV0SZkLYWxcIGNw50HVuJrCeVjsaYPKJGm+wI2AmA==}
     engines: {node: '>=24'}
     hasBin: true
 
@@ -1407,8 +1407,8 @@ packages:
       '@huggingface/transformers':
         optional: true
 
-  foxpaw@0.1.3:
-    resolution: {integrity: sha512-OAfnyn+m4inP22ZJnkts9DL55FHVpkLQhomyPhiygV7B5yBUSiwlwsblPxADl2Kx+G2oI9twuV/gWE48rRqZfA==}
+  foxpaw@0.1.7:
+    resolution: {integrity: sha512-1jsDvZmsoZJjr/PtfgIBE/mSpcWDcV2bOleH3vki9wM7tYJQydv6BC83VyBc/21BiG8MpkwpVFlK5aVBtEfHOA==}
     engines: {node: '>=24'}
 
   foxtrail@0.1.0:
@@ -3190,7 +3190,7 @@ snapshots:
 
   core-util-is@1.0.3: {}
 
-  create-foxkit@0.1.0(yauzl@3.4.0):
+  create-foxkit@0.1.2(yauzl@3.4.0):
     dependencies:
       puppeteer-core: 25.12.0(yauzl@3.4.0)
     transitivePeerDependencies:
@@ -3485,7 +3485,7 @@ snapshots:
     optionalDependencies:
       '@huggingface/transformers': 4.3.1(@types/node@24.19.1)
 
-  foxpaw@0.1.3: {}
+  foxpaw@0.1.7: {}
 
   foxtrail@0.1.0: {}
 
