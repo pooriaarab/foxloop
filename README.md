@@ -110,7 +110,7 @@ async function run(tab, goal, mind, askHuman) {
 | Who | What they build | How foxloop helps |
 |---|---|---|
 | People who want a personal browser agent (for example foxmate) | An agent that does tasks in their own Firefox, with their own logins | The loop plans with a local or own-key model, acts through foxpaw, and stops for a human before a form is sent. |
-| Teams that automate forms | A tool that fills job, travel or support forms from saved data | `browser_task` fills and sends the form with foxpaw, and foxpaw's check must pass before the run is `done`. The human approves the whole task once, after reading the page address and the goal. foxpaw then picks each field and click itself. |
+| Teams that automate forms | A tool that fills job, travel or support forms from saved data | `browser_task` fills and sends the form with foxpaw, and foxpaw's check must pass before the run is `done`. The human approves the whole task once, after reading the page address, the goal, where the form sends and which fields get a value. foxpaw then picks each field and click itself, and sends only to that destination. |
 | QA engineers | A test agent that walks a staging site and reports what broke | Grants keep the agent on the staging hosts. The trail and the event stream show each step, and a failed check stops the run with a reason. |
 | Builders of research assistants | An assistant that reads pages and saves notes | Page text reaches the model only as delimited data. Read and note tools run on grants with no approval. A tool that sends anything needs one. |
 | Developers who build their own agent on the fox primitives | A custom agent with its own tools, outside the browser too | Tools are plain objects with a JSON Schema. The loop works with any `chat` that returns OpenAI-shaped tool calls, and with any gate that has `check` and `redeem`. |
@@ -275,7 +275,7 @@ result is `stale` and nothing runs. Calls on one tab run one at a time.
 | `act` | `fill` | Types, selects, checks, unchecks, sets a date or scrolls one control from the last snapshot, then reads the page again. |
 | `click` | `submit` | Clicks one control from the last snapshot. A click can send a form, so foxgate asks by default. |
 | `open_url` | `read` | Opens an `http:` or `https:` address in the tab, then reads the page when the tab is still on the judged host. The domain is the host of that address. |
-| `browser_task` | `submit` | Runs foxpaw's `runTask` with a goal and returns foxpaw's check. |
+| `browser_task` | `submit` | Reads the page and adds foxpaw's `preview` to the call as `form`: the destination, the send button and the fields, with sensitive values masked. Then runs foxpaw's `runTask` with the goal, pinned to that destination, and returns foxpaw's check. |
 
 ### Other exports
 
@@ -382,7 +382,8 @@ sentence into its `finish` summary. No tool could act on it.
 - `browser_task` and `click` can send forms, so foxgate asks a human for each
   call by default. One `browser_task` approval covers every field and click
   that foxpaw makes in that task, not each one. foxpaw chooses them from the
-  goal; the human approves the goal and the page, not the clicks.
+  goal; the human approves the goal, the page and the destination, not the
+  clicks. foxpaw refuses to send to any other destination.
 - The demo's own-key planner uses foxmind's `only: ["cloud"]`. A localhost
   address in that planner fails; use the Ollama or llama-server choice.
 - We did not run Saluki 27B, a cloud key, or the in-browser model in the E2E
