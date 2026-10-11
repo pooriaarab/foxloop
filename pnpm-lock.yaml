@@ -12,8 +12,8 @@ importers:
         specifier: ^0.1.0
         version: 0.1.0
       foxpaw:
-        specifier: ^0.1.7
-        version: 0.1.7
+        specifier: ^0.1.9
+        version: 0.1.9
     devDependencies:
       '@huggingface/transformers':
         specifier: ^4.3.1
@@ -1407,8 +1407,8 @@ packages:
       '@huggingface/transformers':
         optional: true
 
-  foxpaw@0.1.7:
-    resolution: {integrity: sha512-1jsDvZmsoZJjr/PtfgIBE/mSpcWDcV2bOleH3vki9wM7tYJQydv6BC83VyBc/21BiG8MpkwpVFlK5aVBtEfHOA==}
+  foxpaw@0.1.9:
+    resolution: {integrity: sha512-JdL+R7KMde3Cvml5uE3yRAEFV2Edqzyi98K1I7HcibLCbIPRCyuNm4IRnJ+8m+XBTiWoWt9Sr62kRAyeFSyZFA==}
     engines: {node: '>=24'}
 
   foxtrail@0.1.0:
@@ -3485,7 +3485,7 @@ snapshots:
     optionalDependencies:
       '@huggingface/transformers': 4.3.1(@types/node@24.19.1)
 
-  foxpaw@0.1.7: {}
+  foxpaw@0.1.9: {}
 
   foxtrail@0.1.0: {}
 

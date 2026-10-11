@@ -129,8 +129,13 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const result = await paw.act(tabId, control, request, page, api());
     if (!result.ok) {
+      // Read the page again here, so the next reply can act without a snapshot call (B13).
       last = undefined;
-      return { ok: false, summary: `foxpaw did not act: ${result.reason}. Call snapshot to read the page again.`, ...(result.detail ? { untrusted: `Detail: ${result.detail}` } : {}) };
+      const detail = result.detail ? `Detail: ${result.detail}` : undefined;
+      const now = await read(tabId).catch(() => undefined);
+      if (!now) return { ok: false, summary: `foxpaw did not act: ${result.reason}. Call snapshot to read the page again.`, ...(detail ? { untrusted: detail } : {}) };
+      const change = paw.changeText(masked(page), masked(now), { target: control.id });
+      return { ok: false, summary: `foxpaw did not act: ${result.reason}. The page as it is now follows; plan from it.`, untrusted: [detail, change.text].filter(Boolean).join("\n") };
     }
     await paw.settle(tabId, { frameId: control.frameId }, api());
     const after = await read(tabId).catch(() => undefined);
