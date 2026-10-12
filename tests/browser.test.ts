@@ -640,6 +640,17 @@ describe("B14-B23: fill sets several fields in one call", () => {
     expect((await g.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
   });
 
+  it("B26: a field the host redacts (a card number) counts by the value foxpaw read right after typing it", async () => {
+    const redacted = sendsTo("https://shop.example/pay");
+    redacted.controls[0] = { ...redacted.controls[0]!, value: "[redacted]" };
+    const f = fakes([sendsTo("https://shop.example/pay"), redacted], [{ ok: true, value: "4242 4242 4242 4242" }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).ok).toBe(true);
+    const g = fakes([sendsTo("https://shop.example/pay"), redacted], [{ ok: true, value: "4000 0000 0000 0002" }]);
+    await g.call("snapshot", {});
+    expect((await g.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+  });
+
   it("B26: a date the page wrote in its own form, as foxpaw read it right after, still sends", async () => {
     const done = sendsTo("https://shop.example/pay");
     done.controls[3] = { ...done.controls[3]!, value: "Oct 20, 2026" };

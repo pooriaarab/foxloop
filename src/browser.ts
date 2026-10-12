@@ -75,6 +75,8 @@ function pinned(page: Snapshot, target: Target) {
   return same ? control : undefined;
 }
 
+/** A value the host replaced in its read: foxpass's "[redacted]", or a mask of dots. */
+const REDACTED = /^(?:\[redacted\]|[•●*]+(?: ?\d{0,4})?)$/;
 const grouped = (text: string) => text.replace(/[\s\-./()]/g, "");
 
 /** The control holds what its `fill` request gave: the same text, the same option, the box as asked (B24). */
@@ -103,6 +105,9 @@ function drift(before: Snapshot, now: Snapshot, targets: FillTarget[], seen: Map
     const request = given.get(c.id);
     if (request) {
       const own = (request.op === "date" || request.op === "select") && seen.has(c.id) && c.value === seen.get(c.id);
+      // The host redacts a card number or a code in every read: count the value foxpaw read right after typing it.
+      const hidden = request.op === "type" && REDACTED.test(c.value) && seen.has(c.id) && grouped(seen.get(c.id)!) === grouped(request.value ?? "");
+      if (hidden) continue;
       if (!holds(c, request) && !own) return `field ${c.id} no longer holds the approved value`;
       continue;
     }
