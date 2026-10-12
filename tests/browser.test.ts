@@ -627,6 +627,19 @@ describe("B14-B23: fill sets several fields in one call", () => {
     expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:DE89 3704"]);
   });
 
+  it("B26: typed text the page groups with spaces or dashes (a card number) still sends; other characters do not", async () => {
+    const grouped = sendsTo("https://shop.example/pay");
+    grouped.controls[0] = { ...grouped.controls[0]!, value: "4242 4242 4242 4242" };
+    const f = fakes([sendsTo("https://shop.example/pay"), grouped], [{ ok: true, value: "4242 4242 4242 4242" }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).ok).toBe(true);
+    const other = sendsTo("https://shop.example/pay");
+    other.controls[0] = { ...other.controls[0]!, value: "4242 4242 4242 4243" };
+    const g = fakes([sendsTo("https://shop.example/pay"), other], [{ ok: true, value: "4242 4242 4242 4243" }]);
+    await g.call("snapshot", {});
+    expect((await g.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+  });
+
   it("B26: a date the page wrote in its own form, as foxpaw read it right after, still sends", async () => {
     const done = sendsTo("https://shop.example/pay");
     done.controls[3] = { ...done.controls[3]!, value: "Oct 20, 2026" };

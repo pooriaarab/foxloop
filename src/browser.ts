@@ -75,10 +75,14 @@ function pinned(page: Snapshot, target: Target) {
   return same ? control : undefined;
 }
 
+const grouped = (text: string) => text.replace(/[\s\-./()]/g, "");
+
 /** The control holds what its `fill` request gave: the same text, the same option, the box as asked (B24). */
 function holds(c: Snapshot["controls"][number], request: ActRequest): boolean {
   if (request.op === "check" || request.op === "uncheck") return c.checked === (request.op === "check");
-  if (request.op === "type" || request.op === "date") return c.value === request.value;
+  if (request.op === "date") return c.value === request.value;
+  // A field may group typed text (a card number in fours); the characters themselves must match (B26).
+  if (request.op === "type") return c.value === request.value || grouped(c.value) === grouped(request.value ?? "");
   if (request.op === "select") return c.value === request.value || (c.options?.some((o) => o.selected && (o.value === request.value || o.label === request.value)) ?? false);
   return false;
 }
