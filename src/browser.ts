@@ -190,6 +190,14 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     }
     return { ...args, targets };
   };
+  /** Pins the fields as `fill` does and the button that sends, with its destination (B25). */
+  const pinSend = async (args: Record<string, unknown>) => {
+    const withFields = await pinFields(args);
+    const { control: c, url } = await named({ controlId: args.send });
+    if (c.role !== "button" || c.secret) throw new Error(`Control ${c.id} is a ${c.role}, not a button. send names the button that sends the form.`);
+    if ((withFields.targets as FillTarget[]).some((t) => t.id === c.id)) throw new Error(`Control ${c.id} is the button; leave it out of fields.`);
+    return { ...withFields, sendTarget: { ...targetOf(c, url), action: c.action ?? null } satisfies SendTarget };
+  };
   const operate = async (args: Record<string, unknown>, request: ActRequest, signal: AbortSignal): Promise<ToolOutput> => {
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const tabId = await options.tabId();
@@ -289,6 +297,21 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     return { ok: true, summary: `Done: ${done}${sent ? " The form was sent." : ""}${notDone}`, untrusted: text, data, ...(stopBatch ? { stopBatch } : {}) };
   };
 
+  /** The fields, a fresh read, then the pinned button, if it is still the same control with the same destination (B25). */
+  const fillAndSend = async (args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutput> => {
+    const filled = await fillFields(args, signal);
+    const data = filled.data as { filled: unknown[] };
+    if (!filled.ok || filled.stopBatch) return { ...filled, ok: false, summary: `${filled.summary}${filled.stopBatch ? ` Stopped: ${filled.stopBatch}.` : ""} Nothing was sent.` };
+    const send = args.sendTarget as SendTarget;
+    const tabId = await options.tabId();
+    const now = last?.tabId === tabId ? last.page : undefined;
+    const c = now?.url === send.url ? now.controls.find((x) => x.id === send.id && x.node === send.node && x.frameId === send.frameId && x.role === send.role
+      && x.label === send.label && x.submit === send.submit && (x.action ?? null) === send.action) : undefined;
+    if (!now || !c) return { ok: false, summary: `${filled.summary} The button changed after the fields. Nothing was sent.`, ...(filled.untrusted ? { untrusted: filled.untrusted } : {}), data };
+    const click = await operate({ target: targetOf(c, now.url) }, { op: "click" }, signal);
+    return { ...click, summary: `${filled.summary.replace(/^Done: /, "")} ${click.summary}`, data: { ...data, ...(click.ok ? { sent: send.id } : {}) } };
+  };
+
   const control = { controlId: { type: "string", description: "The control id from the last snapshot, for example \"0:12\"." } };
   return [
     {
@@ -334,6 +357,21 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const targets = args.targets as FillTarget[];
         const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
         return `fill ${targets.length} field${targets.length === 1 ? "" : "s"} on ${targets[0]?.url ?? "the page"}: ${parts.join("; ")}`;
+      },
+    },
+    {
+      name: "fill_and_send",
+      description: "Set several fields from the last snapshot, then click the button that sends the form, in one call. fields as in fill; send is the button's control id.",
+      parameters: { type: "object", properties: { fields: { type: "object", additionalProperties: true }, send: { type: "string" } }, required: ["fields", "send"] },
+      scope: "submit",
+      domain: tabDomain,
+      prepare: pinSend,
+      run: (args, ctx: ToolContext) => serial(async () => (await moved(ctx)) ?? fillAndSend(args, ctx.signal)),
+      describe: (args) => {
+        const targets = args.targets as FillTarget[];
+        const send = args.sendTarget as SendTarget;
+        const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
+        return `fill ${targets.length} field${targets.length === 1 ? "" : "s"} on ${targets[0]?.url ?? "the page"}: ${parts.join("; ")}; then click the ${send.role} "${send.label}"${send.action ? ` (sends its form to ${send.action})` : send.submit ? " (sends its form)" : ""}`;
       },
     },
     {
@@ -426,6 +464,11 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
 export interface TaskForm extends FormPlan {
   /** The page address the preview read. */
   url: string;
+}
+
+/** The button a `fill_and_send` call clicks, pinned with where its form sends (B25). */
+interface SendTarget extends Target {
+  action: string | null;
 }
 
 /** A field that a `fill` call is pinned to, and what foxpaw does to it (B17). */
