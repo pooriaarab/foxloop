@@ -136,7 +136,7 @@ const defsOf = (tools: Iterable<LoopTool>): ToolDef[] => [
     function: {
       name: FINISH,
       description: "Call this when the goal is reached. foxloop then checks the result.",
-      parameters: { type: "object", properties: { summary: { type: "string", description: "At most 15 words." } }, required: ["summary"] },
+      parameters: { type: "object", properties: { summary: { type: "string", description: "At most 8 words." } }, required: ["summary"] },
     },
   },
 ];
