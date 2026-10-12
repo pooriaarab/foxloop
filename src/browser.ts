@@ -78,9 +78,34 @@ function pinned(page: Snapshot, target: Target) {
 /** The control holds what its `fill` request gave: the same text, the same option, the box as asked (B24). */
 function holds(c: Snapshot["controls"][number], request: ActRequest): boolean {
   if (request.op === "check" || request.op === "uncheck") return c.checked === (request.op === "check");
-  if (request.op === "type") return c.value === request.value;
+  if (request.op === "type" || request.op === "date") return c.value === request.value;
   if (request.op === "select") return c.value === request.value || (c.options?.some((o) => o.selected && (o.value === request.value || o.label === request.value)) ?? false);
   return false;
+}
+
+/** A field whose value can be sent: not a button, a link or other click-only control. */
+const isField = (c: Snapshot["controls"][number]) => !c.submit && (BOOLEAN_ROLES.has(c.role) || TEXT_ROLES.has(c.role) || c.tag === "select" || c.tag === "textarea");
+
+/**
+ * Why fill_and_send must not click: a filled field that does not hold its approved value, or another field that changed
+ * since the approval snapshot (B26). A date or a suggestion pick may hold the page's own form of the value, as foxpaw read
+ * it right after setting it; typed text and boxes must match exactly.
+ */
+function drift(before: Snapshot, now: Snapshot, targets: FillTarget[], seen: Map<string, string>): string | undefined {
+  const given = new Map(targets.map((t) => [t.id, t.request]));
+  const was = new Map(before.controls.map((c) => [c.id, c]));
+  for (const c of now.controls) {
+    if (!isField(c)) continue;
+    const request = given.get(c.id);
+    if (request) {
+      const own = (request.op === "date" || request.op === "select") && seen.has(c.id) && c.value === seen.get(c.id);
+      if (!holds(c, request) && !own) return `field ${c.id} no longer holds the approved value`;
+      continue;
+    }
+    const old = was.get(c.id);
+    if (!old ? c.value !== "" || c.checked === true : old.value !== c.value || (old.checked ?? false) !== (c.checked ?? false)) return `field ${c.id} changed after the approval`;
+  }
+  return undefined;
 }
 
 /** A fill's change text with no line for a field that holds the value given (B24). */
@@ -228,7 +253,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   };
 
   /** Sets each pinned field on the snapshot the gate judged, then reads the page once (B17-B20, B22, B23). */
-  const fillFields = async (args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutput> => {
+  const fillFields = async (args: Record<string, unknown>, signal: AbortSignal, seen?: Map<string, string>): Promise<ToolOutput> => {
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const tabId = await options.tabId();
     const targets = args.targets as FillTarget[] | undefined;
@@ -270,6 +295,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         break;
       }
       filled.push({ controlId: t.id, op: t.request.op, ...(t.request.value !== undefined ? { value: t.request.value } : {}) });
+      if (result.value !== undefined) seen?.set(t.id, result.value);
       await paw.settle(tabId, { frameId: control.frameId }, api());
       // A field that sent the form: the rest would run on the next page (B20).
       if (result.submitted) {
@@ -300,7 +326,8 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   /** The fields, a fresh read, then the pinned button, if it is still the same control with the same destination (B25). */
   const fillAndSend = async (args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutput> => {
     const before = last?.page;
-    const filled = await fillFields(args, signal);
+    const seen = new Map<string, string>();
+    const filled = await fillFields(args, signal, seen);
     const data = filled.data as { filled: unknown[] };
     if (!filled.ok) return { ...filled, summary: `${filled.summary} Nothing was sent.` };
     const send = args.sendTarget as SendTarget;
@@ -308,7 +335,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     const now = last?.tabId === tabId ? last.page : undefined;
     // Only a send, a new address or a control that went away or changed stops it; many fields that took their values do not.
     if (filled.stopBatch === "the form was sent") return { ...filled, summary: `${filled.summary} A field sent the form, so the button was not clicked.` };
-    const why = before && now ? changed(before, now) : "the page could not be read again";
+    const why = before && now ? changed(before, now) ?? drift(before, now, args.targets as FillTarget[], seen) : "the page could not be read again";
     if (why) return { ...filled, ok: false, summary: `${filled.summary} Stopped: ${why}. Nothing was sent.` };
     const c = now?.url === send.url ? now.controls.find((x) => x.id === send.id && x.node === send.node && x.frameId === send.frameId && x.role === send.role
       && x.label === send.label && x.submit === send.submit && (x.action ?? null) === send.action) : undefined;
