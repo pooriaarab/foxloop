@@ -536,6 +536,15 @@ const sendsTo = (action: string) => {
   return p;
 };
 
+/** fill_and_send of one typed value, when the field then shows `shown` (B27). */
+async function sendShown(typed: string, shown: string) {
+  const after = sendsTo("https://shop.example/pay");
+  after.controls[0] = { ...after.controls[0]!, value: shown };
+  const f = fakes([sendsTo("https://shop.example/pay"), after], [{ ok: true, value: shown }, { ok: true, submitted: true }]);
+  await f.call("snapshot", {});
+  return (await f.call("fill_and_send", { fields: { "0:1": typed }, send: "0:7" })).ok;
+}
+
 describe("B14-B23: fill sets several fields in one call", () => {
   it("B17, B22, B23: each field gets the op its control takes, in order, with a read before each later field and one at the end", async () => {
     const f = fakes(Array.from({ length: 6 }, form));
@@ -642,13 +651,27 @@ describe("B14-B23: fill sets several fields in one call", () => {
 
   it("B26: a field the host redacts (a card number) counts by the value foxpaw read right after typing it", async () => {
     const redacted = sendsTo("https://shop.example/pay");
-    redacted.controls[0] = { ...redacted.controls[0]!, value: "[redacted]" };
+    redacted.controls[0] = { ...redacted.controls[0]!, value: "[redacted]", redacted: true } as typeof redacted.controls[0];
     const f = fakes([sendsTo("https://shop.example/pay"), redacted], [{ ok: true, value: "4242 4242 4242 4242" }, { ok: true, submitted: true }]);
     await f.call("snapshot", {});
     expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).ok).toBe(true);
     const g = fakes([sendsTo("https://shop.example/pay"), redacted], [{ ok: true, value: "4000 0000 0000 0002" }]);
     await g.call("snapshot", {});
     expect((await g.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+  });
+
+  it("B27: only spaces or dashes in a card number or an IBAN may differ; other typed text must match", async () => {
+    for (const [typed, shown] of [["10.00", "1000"], ["-50", "50"], ["1/12/2026", "11/2/2026"], ["pay@acme.com", "pay@acmec.om"]] as const) expect(await sendShown(typed, shown), `${typed} vs ${shown}`).toBe(false);
+    expect(await sendShown("4242424242424242", "4242-4242-4242-4242")).toBe(true);
+    expect(await sendShown("GB29NWBK60161331926819", "gb29 nwbk 6016 1331 9268 19")).toBe(true);
+  });
+
+  it("B27: a value shaped like a mask is not skipped unless the host marked the field redacted", async () => {
+    const masked = sendsTo("https://shop.example/pay");
+    masked.controls[0] = { ...masked.controls[0]!, value: "*9999" };
+    const f = fakes([sendsTo("https://shop.example/pay"), masked], [{ ok: true, value: "4242424242424242" }]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
   });
 
   it("B26: a date the page wrote in its own form, as foxpaw read it right after, still sends", async () => {

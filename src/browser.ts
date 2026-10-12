@@ -75,16 +75,26 @@ function pinned(page: Snapshot, target: Target) {
   return same ? control : undefined;
 }
 
-/** A value the host replaced in its read: foxpass's "[redacted]", or a mask of dots. */
-const REDACTED = /^(?:\[redacted\]|[•●*]+(?: ?\d{0,4})?)$/;
-const grouped = (text: string) => text.replace(/[\s\-./()]/g, "");
+/**
+ * Typed text and what the field shows, the same but for spaces or dashes between characters, when both are a card
+ * number (digits only) or an IBAN (case ignored); else they must match exactly (B27).
+ */
+function sameGrouped(shown: string, typed: string): boolean {
+  const a = ungrouped(shown);
+  return a === ungrouped(typed) && (/^\d+$/.test(a) || /^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(a));
+}
+function ungrouped(text: string): string {
+  return text.trim().replace(/(?<=\w)[\s-]+(?=\w)/g, "").toUpperCase();
+}
+/** The host redacted this control's value in its reads (foxmate marks it when foxpass redacts it), B27. */
+const redactedByHost = (c: Snapshot["controls"][number]) => (c as { redacted?: unknown }).redacted === true;
 
 /** The control holds what its `fill` request gave: the same text, the same option, the box as asked (B24). */
 function holds(c: Snapshot["controls"][number], request: ActRequest): boolean {
   if (request.op === "check" || request.op === "uncheck") return c.checked === (request.op === "check");
   if (request.op === "date") return c.value === request.value;
   // A field may group typed text (a card number in fours); the characters themselves must match (B26).
-  if (request.op === "type") return c.value === request.value || grouped(c.value) === grouped(request.value ?? "");
+  if (request.op === "type") return c.value === request.value || sameGrouped(c.value, request.value ?? "");
   if (request.op === "select") return c.value === request.value || (c.options?.some((o) => o.selected && (o.value === request.value || o.label === request.value)) ?? false);
   return false;
 }
@@ -106,7 +116,7 @@ function drift(before: Snapshot, now: Snapshot, targets: FillTarget[], seen: Map
     if (request) {
       const own = (request.op === "date" || request.op === "select") && seen.has(c.id) && c.value === seen.get(c.id);
       // The host redacts a card number or a code in every read: count the value foxpaw read right after typing it.
-      const hidden = request.op === "type" && REDACTED.test(c.value) && seen.has(c.id) && grouped(seen.get(c.id)!) === grouped(request.value ?? "");
+      const hidden = request.op === "type" && redactedByHost(c) && seen.has(c.id) && (seen.get(c.id) === request.value || sameGrouped(seen.get(c.id)!, request.value ?? ""));
       if (hidden) continue;
       if (!holds(c, request) && !own) return `field ${c.id} no longer holds the approved value`;
       continue;
