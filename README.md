@@ -261,7 +261,7 @@ A tool is a plain object:
 The browser tool pack, over [foxpaw](https://github.com/pooriaarab/foxpaw).
 Tab tools take the domain from the tab address at the gate check. When the tab is on another host by the time the tool runs, the tool runs nothing.
 
-`act` and `click` pin their control. Their `prepare` adds a `target` with the
+`act`, `fill` and `click` pin their controls. Their `prepare` adds a `target` (for `fill`, one per field) with the
 snapshot number, the control id, frame, node, guard, role, label and page
 address. foxgate judges that `target`, and the human sees it in the exact
 JSON. When the call runs, the tool acts only on that control from that
@@ -273,6 +273,7 @@ result is `stale` and nothing runs. Calls on one tab run one at a time.
 |---|---|---|
 | `snapshot` | `read` | Reads the page. The model gets up to 40 controls and the page text, all as untrusted data. A password field's value is never in it. |
 | `act` | `fill` | Types, selects, checks, unchecks, sets a date or scrolls one control from the last snapshot, then reads the page again. |
+| `fill` | `fill` | Sets up to 12 fields from the last snapshot in one call: `fields` maps each control id to text, an option, an ISO date, or `true`/`false` for a checkbox. It refuses a password field and any control that only a click sets, acts on the pinned controls in order, stops at the first refusal, and reads the page once at the end. |
 | `click` | `submit` | Clicks one control from the last snapshot. A click can send a form, so foxgate asks by default. |
 | `open_url` | `read` | Opens an `http:` or `https:` address in the tab, then reads the page when the tab is still on the judged host. The domain is the host of that address. |
 | `browser_task` | `submit` | Reads the page and adds foxpaw's `preview` to the call as `form`: the destination, the send button and the fields, with sensitive values masked. Then runs foxpaw's `runTask` with the goal, pinned to that destination, and returns foxpaw's check. |

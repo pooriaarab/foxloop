@@ -253,7 +253,7 @@ describe("B5: tab tools take the domain from the tab", () => {
   it("gives each tool the scope of what it can do", () => {
     const { tools } = fakes([]);
     expect(Object.fromEntries([...tools.values()].map((t) => [t.name, t.scope]))).toEqual({
-      snapshot: "read", open_url: "read", act: "fill", click: "submit", browser_task: "submit",
+      snapshot: "read", open_url: "read", act: "fill", fill: "fill", click: "submit", browser_task: "submit",
     });
   });
 });
@@ -517,5 +517,171 @@ describe("B9-B12, P8: act and click return what changed", () => {
     expect(out.untrusted).toContain(`| ${forged}`);
     expect(out.untrusted).not.toMatch(/^\[0:99\]/m);
     expect(out.untrusted).toContain('[0:1] textbox "Email\\" value=\\"x"');
+  });
+});
+
+/** A form with a text box, an autocomplete field, a select, a date, a checkbox, a password and a send button. */
+const form = () => page([
+  control(1, "Name", { form: 1 }), control(2, "From", { form: 1, role: "combobox", autocomplete: true }),
+  control(3, "Size", { form: 1, role: "combobox", tag: "select", options: [{ value: "M", label: "M", selected: true }, { value: "L", label: "L", selected: false }] }),
+  control(4, "Depart", { form: 1, picker: true }), control(5, "Terms", { form: 1, role: "checkbox", type: "checkbox" }),
+  control(6, "Password", { form: 1, type: "password", secret: true }), control(7, "Send", { form: 1, role: "button", tag: "button", submit: true }),
+  control(8, "Help", { role: "link", tag: "a" }),
+]);
+
+describe("B14-B23: fill sets several fields in one call", () => {
+  it("B17, B22, B23: each field gets the op its control takes, in order, with a read before each later field and one at the end", async () => {
+    const f = fakes(Array.from({ length: 6 }, form));
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam Park", "0:2": "Toronto (YYZ)", "0:3": "L", "0:4": "2026-10-20", "0:5": true } });
+    expect(out.ok).toBe(true);
+    expect(out.summary).toBe("Done: Filled: 0:1, 0:2, 0:3, 0:4, 0:5.");
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam Park", "act:0:2:select:Toronto (YYZ)", "act:0:3:select:L", "act:0:4:date:2026-10-20", "act:0:5:check:"]);
+    expect(f.calls.filter((c) => c === "snapshot")).toHaveLength(6);
+    expect((out.data as { filled: unknown[] }).filled).toEqual([
+      { controlId: "0:1", op: "type", value: "Sam Park" }, { controlId: "0:2", op: "select", value: "Toronto (YYZ)" }, { controlId: "0:3", op: "select", value: "L" },
+      { controlId: "0:4", op: "date", value: "2026-10-20" }, { controlId: "0:5", op: "check" }]);
+  });
+
+  it("B17: describe names every control, op and value, and the page", async () => {
+    const f = fakes([form()]);
+    await f.call("snapshot", {});
+    expect(await f.describeVia("fill", { fields: { "0:1": "Sam", "0:5": false } }))
+      .toBe('fill 2 fields on https://shop.example/signup: type "Sam" into the textbox "Name"; uncheck on the checkbox "Terms"');
+  });
+
+  it("B14: one unknown id, or no snapshot, fails the call and nothing runs", async () => {
+    const none = fakes([form()]);
+    expect((await none.call("fill", { fields: { "0:1": "Sam" } })).summary).toMatch(/Call snapshot first/);
+    const f = fakes([form()]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:99": "x" } });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/No control has the id "0:99"/);
+    expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+  });
+
+  it("B15: a password field fails the call and nothing runs", async () => {
+    const f = fakes([form()]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:6": "hunter2" } });
+    expect(out.summary).toMatch(/password field.*use act/);
+    expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+  });
+
+  it("B16: a submit button or a link fails the call", async () => {
+    for (const id of ["0:7", "0:8"]) {
+      const f = fakes([form()]);
+      await f.call("snapshot", {});
+      const out = await f.call("fill", { fields: { "0:1": "Sam", [id]: true } });
+      expect(out.summary).toMatch(/not a field.*use click/);
+      expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+    }
+  });
+
+  it("B21: a value that does not fit its control, no field, or too many fields fails the call", async () => {
+    const cases: [Record<string, unknown>, RegExp][] = [
+      [{ "0:5": "yes" }, /true or false/], [{ "0:1": true }, /takes text/], [{ "0:1": "x".repeat(2001) }, /takes text/], [{}, /fields is empty/],
+    ];
+    for (const [fields, why] of cases) {
+      const f = fakes([form()]);
+      await f.call("snapshot", {});
+      expect((await f.call("fill", { fields })).summary).toMatch(why);
+      expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+    }
+    const many = page(Array.from({ length: 13 }, (_, i) => control(i + 1, `Field ${i + 1}`)));
+    const f = fakes([many]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: Object.fromEntries(many.controls.map((c) => [c.id, "x"])) })).summary).toMatch(/at most 12 fields/);
+  });
+
+  it("B22: a later field whose control changed after an earlier field stops the call", async () => {
+    const moved = form();
+    moved.controls[2] = { ...moved.controls[2]!, label: "Delete account" };
+    const f = fakes([form(), moved, moved]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:3": "L" } });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/did not act on control 0:3: stale\. Filled: 0:1\./);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam"]);
+  });
+
+  it("B22: a later field that turned into a password field stops the call as stale", async () => {
+    const secret = form();
+    secret.controls[0] = { ...secret.controls[0]!, type: "password", secret: true };
+    const f = fakes([form(), secret, secret]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:3": "L", "0:1": "Sam" } });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/did not act on control 0:1: stale\. Filled: 0:3\./);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:3:select:L"]);
+  });
+
+  it("B22: a new guard on the same control is fine; foxpaw checks it in the page", async () => {
+    const typed = form();
+    typed.controls[2] = { ...typed.controls[2]!, guard: "g3-new" };
+    const f = fakes([form(), typed, typed]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: { "0:1": "Sam", "0:3": "L" } })).ok).toBe(true);
+  });
+
+  it("B21: a radio or checkbox takes \"true\", \"false\" or its own label", async () => {
+    const radio = page([control(1, "One way", { role: "radio", type: "radio" }), control(2, "Nonstop only", { role: "checkbox", type: "checkbox" })]);
+    const f = fakes([radio, radio, radio]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: { "0:1": "One way", "0:2": "false" } })).ok).toBe(true);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:check:", "act:0:2:uncheck:"]);
+  });
+
+  it("B18: a refusal in the middle stops the rest and shows the page now", async () => {
+    const now = form();
+    now.controls[1] = { ...now.controls[1]!, value: "Tor" };
+    const f = fakes([form(), form(), now], [{ ok: true }, { ok: false, reason: "unsupported", detail: "2 suggestions hold the value" }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:2": "Toronto", "0:3": "L" } });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toBe("foxpaw did not act on control 0:2: unsupported. Filled: 0:1. Not done: 0:3. The page as it is now follows; plan from it.");
+    expect(out.untrusted).toMatch(/2 suggestions hold the value/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toHaveLength(2);
+    expect((out.data as { filled: unknown[] }).filled).toEqual([{ controlId: "0:1", op: "type", value: "Sam" }]);
+  });
+
+  it("B17: a page read between the approval and the run makes the call stale", async () => {
+    const f = fakes([form(), form()]);
+    await f.call("snapshot", {});
+    const prepared = await f.tool("fill").prepare!({ fields: { "0:1": "Sam" } }, ctx);
+    await f.call("snapshot", {});
+    const out = await f.tool("fill").run(prepared, ctx);
+    expect(out.summary).toMatch(/^stale/);
+    expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+  });
+
+  it("B20: a field that sent the form stops the rest and ends the batch", async () => {
+    const f = fakes([form(), page([])], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:3": "L" } });
+    expect(out.ok).toBe(true);
+    expect(out.summary).toBe("Done: Filled: 0:1. The form was sent. Not done: 0:3.");
+    expect(out.stopBatch).toBe("the form was sent");
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toHaveLength(1);
+  });
+
+  it("B12, B15: the page text after a fill never holds a secret value", async () => {
+    const after = form();
+    after.controls[5] = { ...after.controls[5]!, value: "hunter2" };
+    const f = fakes([form(), after]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam" } });
+    expect(out.untrusted ?? "").not.toMatch(/hunter2/);
+  });
+
+  it("B7: the tab moved to another host after the gate check, so nothing runs", async () => {
+    const f = fakes([form()]);
+    await f.call("snapshot", {});
+    const prepared = await f.tool("fill").prepare!({ fields: { "0:1": "Sam" } }, ctx);
+    f.setUrl("https://evil.example/");
+    const out = await f.tool("fill").run(prepared, { ...ctx, domain: "shop.example" });
+    expect(out.ok).toBe(false);
+    expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
   });
 });
