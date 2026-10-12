@@ -299,12 +299,17 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
 
   /** The fields, a fresh read, then the pinned button, if it is still the same control with the same destination (B25). */
   const fillAndSend = async (args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutput> => {
+    const before = last?.page;
     const filled = await fillFields(args, signal);
     const data = filled.data as { filled: unknown[] };
-    if (!filled.ok || filled.stopBatch) return { ...filled, ok: false, summary: `${filled.summary}${filled.stopBatch ? ` Stopped: ${filled.stopBatch}.` : ""} Nothing was sent.` };
+    if (!filled.ok) return { ...filled, summary: `${filled.summary} Nothing was sent.` };
     const send = args.sendTarget as SendTarget;
     const tabId = await options.tabId();
     const now = last?.tabId === tabId ? last.page : undefined;
+    // Only a send, a new address or a control that went away or changed stops it; many fields that took their values do not.
+    if (filled.stopBatch === "the form was sent") return { ...filled, summary: `${filled.summary} A field sent the form, so the button was not clicked.` };
+    const why = before && now ? changed(before, now) : "the page could not be read again";
+    if (why) return { ...filled, ok: false, summary: `${filled.summary} Stopped: ${why}. Nothing was sent.` };
     const c = now?.url === send.url ? now.controls.find((x) => x.id === send.id && x.node === send.node && x.frameId === send.frameId && x.role === send.role
       && x.label === send.label && x.submit === send.submit && (x.action ?? null) === send.action) : undefined;
     if (!now || !c) return { ok: false, summary: `${filled.summary} The button changed after the fields. Nothing was sent.`, ...(filled.untrusted ? { untrusted: filled.untrusted } : {}), data };

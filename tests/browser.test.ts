@@ -586,6 +586,19 @@ describe("B14-B23: fill sets several fields in one call", () => {
     expect(out.data).toEqual({ filled: [{ controlId: "0:1", op: "type", value: "Sam" }], sent: "0:7" });
   });
 
+  it("B25: many fields that change at once are no page change; the button is still clicked", async () => {
+    const done = sendsTo("https://shop.example/pay");
+    for (const i of [0, 2, 3]) done.controls[i] = { ...done.controls[i]!, value: ["Sam", "L", "2026-10-20"][[0, 2, 3].indexOf(i)]! };
+    done.controls[1] = { ...done.controls[1]!, value: "Toronto (YYZ)" };
+    done.controls[4] = { ...done.controls[4]!, checked: true };
+    const reads = [sendsTo("https://shop.example/pay"), ...Array.from({ length: 4 }, () => sendsTo("https://shop.example/pay")), done];
+    const f = fakes(reads, [{ ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:1": "Sam", "0:2": "Toronto (YYZ)", "0:3": "L", "0:4": "2026-10-20", "0:5": true }, send: "0:7" });
+    expect(out.summary).not.toMatch(/Nothing was sent/);
+    expect(f.calls.filter((c) => c.startsWith("act:")).at(-1)).toBe("act:0:7:click:");
+  });
+
   it("B25: send must name a button, not a field or a link", async () => {
     for (const id of ["0:1", "0:8"]) {
       const f = fakes([form()]);
