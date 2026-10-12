@@ -52,7 +52,7 @@ describe("P1: page text is data", () => {
   });
 
   it("P10: the planner is asked for a short finish summary", () => {
-    expect(plannerPrompt()).toMatch(/at most 15 words/);
+    expect(plannerPrompt()).toMatch(/at most 8 words/);
     expect(plannerPrompt().length).toBeLessThan(1100);
   });
 
