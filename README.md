@@ -257,24 +257,29 @@ A tool is a plain object:
 | `prepare(args, ctx)` | Optional. Adds host-side arguments after the schema check and before the gate. foxgate judges the result, the human approves it, and `run` gets it. Throw to refuse the call. |
 | `describe(args, ctx)` | Optional. Plain words for the approval, for example `click the button "Pay"`. It gets the prepared arguments. |
 
-### `browserTools({ tabId, browser?, chooser?, paw? })`
+### `browserTools({ tabId, browser?, chooser?, paw?, passwords? })`
 
 The browser tool pack, over [foxpaw](https://github.com/pooriaarab/foxpaw).
 Tab tools take the domain from the tab address at the gate check. When the tab is on another host by the time the tool runs, the tool runs nothing.
 
 `act`, `fill` and `click` pin their controls. Their `prepare` adds a `target` (for `fill`, one per field) with the
-snapshot number, the control id, frame, node, guard, role, label and page
+snapshot number, the control id, frame, node, guard, role, label, password flag and page
 address. foxgate judges that `target`, and the human sees it in the exact
 JSON. When the call runs, the tool acts only on that control from that
 snapshot. If the page was read again in the meantime (for example by a
 snapshot while the approval waited), or the control no longer matches, the
 result is `stale` and nothing runs. Calls on one tab run one at a time.
 
+`passwords(url)` is the one opt-in to type a password with `fill`. Give it only the passwords the user's own goal
+names. `fill` and `fill_and_send` then type a value into a password field when the value is one of them, exactly;
+`url` is the address of the field's own frame, and the field is read again just before its value is typed. The description shows the value as `•••`, and the result's data leaves it out. With no
+`passwords`, `fill` refuses every password field.
+
 | Tool | Scope | What it does |
 |---|---|---|
 | `snapshot` | `read` | Reads the page. The model gets up to 40 controls and the page text, all as untrusted data. A password field's value is never in it. |
 | `act` | `fill` | Types, selects, checks, unchecks, sets a date or scrolls one control from the last snapshot, then reads the page again. |
-| `fill` | `fill` | Sets up to 12 fields from the last snapshot in one call: `fields` maps each control id to text, an option, an ISO date, or `true`/`false` for a checkbox. It refuses a password field and any control that only a click sets, acts on the pinned controls in order, stops at the first refusal, and reads the page once at the end. |
+| `fill` | `fill` | Sets up to 12 fields from the last snapshot in one call: `fields` maps each control id to text, an option, an ISO date, or `true`/`false` for a checkbox. It refuses a password field (unless `passwords` lists the exact value) and any control that only a click sets, acts on the pinned controls in order, stops at the first refusal, and reads the page once at the end. |
 | `click` | `submit` | Clicks one control from the last snapshot. A click can send a form, so foxgate asks by default. |
 | `open_url` | `read` | Opens an `http:` or `https:` address in the tab, then reads the page when the tab is still on the judged host. The domain is the host of that address. |
 | `browser_task` | `submit` | Reads the page and adds foxpaw's `preview` to the call as `form`: the destination, the send button and the fields, with sensitive values masked. Then runs foxpaw's `runTask` with the goal, pinned to that destination, and returns foxpaw's check. |

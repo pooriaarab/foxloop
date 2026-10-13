@@ -4,7 +4,7 @@ import type { ActResult, Control, RunOptions, RunResult, Snapshot } from "foxpaw
 import { createFoxgate } from "foxgate";
 import * as foxpaw from "foxpaw";
 import { describe, expect, it } from "vitest";
-import { browserTools, createLoop, scriptedMind, toolSpecs, type LoopEvent, type LoopTool, type PawLike, type TabsLike } from "../src/index.js";
+import { browserTools, createLoop, scriptedMind, toolSpecs, type BrowserToolsOptions, type LoopEvent, type LoopTool, type PawLike, type TabsLike } from "../src/index.js";
 
 const ctx = { signal: new AbortController().signal, step: 1, goal: "Sign up." };
 
@@ -19,7 +19,7 @@ const page = (controls: Control[], over: Partial<Snapshot> = {}): Snapshot => ({
   controls, frames: [{ frameId: 0, url: "https://shop.example/signup", key: "k" }], captcha: false, more: false, ...over,
 });
 
-function fakes(snaps: (Snapshot | Error)[], acts: ActResult[] = [], run?: Partial<RunResult>, actDelayMs = 0) {
+function fakes(snaps: (Snapshot | Error)[], acts: ActResult[] = [], run?: Partial<RunResult>, actDelayMs = 0, more: Pick<BrowserToolsOptions, "passwords"> = {}) {
   const calls: string[] = [];
   const runs: RunOptions[] = [];
   let url = "https://shop.example/signup";
@@ -54,7 +54,7 @@ function fakes(snaps: (Snapshot | Error)[], acts: ActResult[] = [], run?: Partia
       return { goal, url, status: "done", verified: true, checks: [], steps: [], refusals: [], unmatched: [], chooser: "rules", totalMs: 1, ...run };
     },
   };
-  const tools = new Map(browserTools({ tabId: () => 7, browser: { tabs, scripting: { executeScript: async () => [] } }, paw }).map((t) => [t.name, t]));
+  const tools = new Map(browserTools({ tabId: () => 7, browser: { tabs, scripting: { executeScript: async () => [] } }, paw, ...more }).map((t) => [t.name, t]));
   const tool = (name: string) => tools.get(name) as LoopTool;
   /** Calls a tool the way the loop does: prepare (a throw is a failed result), then run. */
   const call = async (name: string, args: Record<string, unknown>, c = ctx) => {
@@ -520,6 +520,9 @@ describe("B9-B12, P8: act and click return what changed", () => {
   });
 });
 
+/** A password the goal names, for the B29 opt-in. */
+const PW = "Tr4il-Mix-2026";
+
 /** A form with a text box, an autocomplete field, a select, a date, a checkbox, a password and a send button. */
 const form = () => page([
   control(1, "Name", { form: 1 }), control(2, "From", { form: 1, role: "combobox", autocomplete: true }),
@@ -738,6 +741,127 @@ describe("B14-B23: fill sets several fields in one call", () => {
     const out = await f.call("fill", { fields: { "0:1": "Sam", "0:6": "hunter2" } });
     expect(out.summary).toMatch(/password field.*use act/);
     expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+  });
+
+  it("B29a: with no opt-in, or an empty list, a password field still fails the call", async () => {
+    for (const more of [{}, { passwords: () => [] }]) {
+      const f = fakes([form()], [], undefined, 0, more);
+      await f.call("snapshot", {});
+      expect((await f.call("fill", { fields: { "0:1": "Sam", "0:6": PW } })).summary).toMatch(/password field.*use act/);
+      expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+    }
+  });
+
+  it("B29b, B29f: only a listed password, exactly, goes into a password field, also as the second field", async () => {
+    for (const value of [PW.toLowerCase(), ` ${PW}`, `${PW} `, PW.slice(0, 8), `${PW}x`, "hunter2", "•••"]) {
+      const f = fakes([form()], [], undefined, 0, { passwords: () => [PW] });
+      await f.call("snapshot", {});
+      const out = await f.call("fill", { fields: { "0:1": "Sam", "0:6": value } });
+      expect(out.summary, value).toMatch(/password field/);
+      expect(f.calls.some((c) => c.startsWith("act:")), value).toBe(false);
+    }
+    const f = fakes(Array.from({ length: 3 }, form), [], undefined, 0, { passwords: () => [PW] });
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:6": PW } });
+    expect(out.ok).toBe(true);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam", `act:0:6:type:${PW}`]);
+  });
+
+  it("B29c: the list is asked for the address of the page the call was planned on", async () => {
+    const seen: string[] = [];
+    const f = fakes([form()], [], undefined, 0, { passwords: (url) => (seen.push(url), url.startsWith("https://bank.example/") ? [PW] : []) });
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: { "0:6": PW } })).summary).toMatch(/password field/);
+    expect(seen).toEqual(["https://shop.example/signup"]);
+    expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+  });
+
+  it("B29d: the password is not in the call's description, its data or its result text", async () => {
+    const f = fakes(Array.from({ length: 4 }, form), [], undefined, 0, { passwords: () => [PW] });
+    await f.call("snapshot", {});
+    const described = await f.describeVia("fill", { fields: { "0:1": "Sam", "0:6": PW } });
+    expect(described).toContain('type "•••" into the textbox "Password"');
+    expect(described).not.toContain(PW);
+    const out = await f.call("fill", { fields: { "0:1": "Sam", "0:6": PW } });
+    expect(out.ok).toBe(true);
+    expect((out.data as { filled: unknown[] }).filled).toEqual([{ controlId: "0:1", op: "type", value: "Sam" }, { controlId: "0:6", op: "type" }]);
+    expect(JSON.stringify(out)).not.toContain(PW);
+  });
+
+  it("B29e: fill_and_send counts a password field by the value foxpaw read right after typing it", async () => {
+    const shown = () => {
+      const p = sendsTo("https://shop.example/pay");
+      p.controls[0] = { ...p.controls[0]!, value: "Sam" };
+      p.controls[5] = { ...p.controls[5]!, value: "•••" };
+      return p;
+    };
+    const f = fakes([sendsTo("https://shop.example/pay"), sendsTo("https://shop.example/pay"), shown(), shown()], [{ ok: true, value: "Sam" }, { ok: true, value: PW }, { ok: true, submitted: true }], undefined, 0, { passwords: () => [PW] });
+    await f.call("snapshot", {});
+    const sent = await f.call("fill_and_send", { fields: { "0:1": "Sam", "0:6": PW }, send: "0:7" });
+    expect(sent.ok).toBe(true);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam", `act:0:6:type:${PW}`, "act:0:7:click:"]);
+    expect(JSON.stringify(sent)).not.toContain(PW);
+    const g = fakes([sendsTo("https://shop.example/pay"), sendsTo("https://shop.example/pay"), shown()], [{ ok: true, value: "Sam" }, { ok: true, value: "attacker-value" }], undefined, 0, { passwords: () => [PW] });
+    await g.call("snapshot", {});
+    expect((await g.call("fill_and_send", { fields: { "0:1": "Sam", "0:6": PW }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+    expect(g.calls.some((c) => c.startsWith("act:0:7"))).toBe(false);
+  });
+
+  it("B29f: a field that turned into, or out of, a password field before its turn stops the call", async () => {
+    const became = form();
+    became.controls[1] = { ...became.controls[1]!, type: "password", secret: true };
+    const f = fakes([form(), became, form()], [], undefined, 0, { passwords: () => [PW] });
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: { "0:1": "Sam", "0:2": "Toronto (YYZ)" } })).summary).toMatch(/stale/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam"]);
+    const shown = form();
+    shown.controls[5] = { ...shown.controls[5]!, type: "text", secret: false };
+    const g = fakes([form(), shown, form()], [], undefined, 0, { passwords: () => [PW] });
+    await g.call("snapshot", {});
+    expect((await g.call("fill", { fields: { "0:1": "Sam", "0:6": PW } })).summary).toMatch(/stale/);
+    expect(g.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam"]);
+  });
+
+  it("B29g: a password field in another frame is judged by that frame's own address", async () => {
+    // The run's site holds a frame from evil.test with a password field in it (C1).
+    const framed = () => {
+      const p = form();
+      p.frames = [{ frameId: 0, url: "https://shop.example/signup", key: "k" }, { frameId: 4, url: "https://evil.test/login", key: "k4" }];
+      p.controls[5] = { ...p.controls[5]!, frameId: 4 };
+      return p;
+    };
+    const seen: string[] = [];
+    const f = fakes([framed()], [], undefined, 0, { passwords: (url) => (seen.push(url), new URL(url).hostname === "shop.example" ? [PW] : []) });
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: { "0:6": PW } })).summary).toMatch(/password field/);
+    expect(seen).toEqual(["https://evil.test/login"]);
+    expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+    // A frame the snapshot does not list gets no password.
+    const lost = framed();
+    lost.frames = lost.frames.slice(0, 1);
+    const g = fakes([lost], [], undefined, 0, { passwords: () => [PW] });
+    await g.call("snapshot", {});
+    expect((await g.call("fill", { fields: { "0:6": PW } })).summary).toMatch(/password field/);
+    // The pinned target names the control's own frame address.
+    const h = fakes([form()], [], undefined, 0, { passwords: () => [PW] });
+    await h.call("snapshot", {});
+    const prepared = await h.tool("fill").prepare!({ fields: { "0:6": PW } }, ctx) as { targets: { frameUrl: string }[] };
+    expect(prepared.targets[0]!.frameUrl).toBe("https://shop.example/signup");
+    const act = await h.tool("act").prepare!({ controlId: "0:6", op: "type", value: PW }, ctx) as { target: { frameUrl: string } };
+    expect(act.target.frameUrl).toBe("https://shop.example/signup");
+  });
+
+  it("B29h: a password field is read again before its value is typed, also as the first field", async () => {
+    const shown = form();
+    shown.controls[5] = { ...shown.controls[5]!, type: "text", secret: false };
+    const f = fakes([form(), shown, form()], [], undefined, 0, { passwords: () => [PW] });
+    await f.call("snapshot", {});
+    expect((await f.call("fill", { fields: { "0:6": PW, "0:1": "Sam" } })).summary).toMatch(/stale/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual([]);
+    const ok = fakes(Array.from({ length: 4 }, form), [], undefined, 0, { passwords: () => [PW] });
+    await ok.call("snapshot", {});
+    expect((await ok.call("fill", { fields: { "0:6": PW, "0:1": "Sam" } })).ok).toBe(true);
+    expect(ok.calls.filter((c) => c.startsWith("act:"))).toEqual([`act:0:6:type:${PW}`, "act:0:1:type:Sam"]);
   });
 
   it("B16: a submit button or a link fails the call", async () => {
