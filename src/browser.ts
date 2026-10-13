@@ -384,7 +384,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   };
 
   const control = { controlId: { type: "string", description: "The control id from the last snapshot, for example \"0:12\"." } };
-  return [
+  const tools: LoopTool[] = [
     {
       name: "snapshot",
       description: "Read the controls and the text of the current page. Call it before act or click.",
@@ -529,6 +529,11 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       }),
     },
   ];
+  // Each result names the page read last, so the loop can tell a new page from the same one (L22).
+  return tools.map((t) => ({ ...t, run: async (args, ctx) => {
+    const output = await t.run(args, ctx);
+    return last ? { ...output, url: last.page.url } : output;
+  } }));
 }
 
 /** What a `browser_task` call fills and where it sends, as foxgate judges and the human approves it (G16). */
