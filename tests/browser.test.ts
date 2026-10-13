@@ -543,6 +543,29 @@ describe("B14-B23: fill sets several fields in one call", () => {
       { controlId: "0:4", op: "date", value: "2026-10-20" }, { controlId: "0:5", op: "check" }]);
   });
 
+  it("B24: a field that holds the value given leaves its line out; another value and other changes still show", async () => {
+    const done = form();
+    done.controls[0] = { ...done.controls[0]!, value: "Sam Park" };
+    done.controls[2] = { ...done.controls[2]!, value: "L", options: [{ value: "M", label: "M", selected: false }, { value: "L", label: "L", selected: true }] };
+    done.controls[4] = { ...done.controls[4]!, checked: true };
+    done.text = "Create your account.\nDraft saved.";
+    const f = fakes([form(), form(), form(), done]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill", { fields: { "0:1": "Sam Park", "0:3": "L", "0:5": true } });
+    expect(out.ok).toBe(true);
+    expect(out.untrusted).toContain("Each field holds the value given.");
+    expect(out.untrusted).not.toContain("Sam Park");
+    expect(out.untrusted).not.toMatch(/\[0:[35]\]/);
+    expect(out.untrusted).toContain("Draft saved.");
+    const masked = form();
+    masked.controls[0] = { ...masked.controls[0]!, value: "SAM PARK" };
+    const g = fakes([form(), masked]);
+    await g.call("snapshot", {});
+    const kept = await g.call("fill", { fields: { "0:1": "Sam Park" } });
+    expect(kept.untrusted).toContain("SAM PARK");
+    expect(kept.untrusted).not.toContain("Each field holds the value given.");
+  });
+
   it("B17: describe names every control, op and value, and the page", async () => {
     const f = fakes([form()]);
     await f.call("snapshot", {});
