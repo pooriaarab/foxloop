@@ -77,6 +77,29 @@ describe("L1-L6: stops", () => {
     expect(note.runs.length).toBe(2);
   });
 
+  it("L22: stops when the same two calls repeat a third time in a row", async () => {
+    const note = noteTool();
+    const { loop } = await setup([note.tool], [save("a"), save("b"), save("a"), save("b"), save("a"), save("b"), save("c")]);
+    const events = await collect(loop.run("Save a and b."));
+    expect(last(events)).toMatchObject({ type: "blocked", reason: "repeated-call" });
+    expect(note.runs.length).toBe(5);
+  });
+
+  it("L22: a pair that changes, or a pair with a read tool, goes on", async () => {
+    const note = noteTool();
+    const { loop } = await setup([note.tool], [save("a"), save("b"), save("a"), save("b"), save("a"), save("c"), save("a")], { maxSteps: 7 });
+    expect(last(await collect(loop.run("Save notes.")))).toMatchObject({ type: "blocked", reason: "max-steps" });
+    expect(note.runs.length).toBe(7);
+    const paging = noteTool();
+    const reader: LoopTool = { ...noteTool().tool, name: "snapshot", scope: "read" };
+    const read = { calls: [{ name: "snapshot", args: { text: "page" } }] };
+    const { gate } = await gateFor([paging.tool, reader], [{ scope: "fill", domains: ["notes.local"] }, { scope: "read", domains: ["notes.local"] }]);
+    const paged = { loop: createLoop({ mind: scriptedMind([save("next"), read, save("next"), read, save("next"), read]), gate, tools: [paging.tool, reader], maxSteps: 6 }) };
+    const end = last(await collect(paged.loop.run("Page on.")));
+    expect(end, JSON.stringify(end)).toMatchObject({ type: "blocked", reason: "max-steps" });
+    expect(paging.runs.length).toBe(3);
+  });
+
   it("L3: stops after 3 failed results in a row", async () => {
     const note = noteTool();
     const { loop } = await setup([note.tool], [unknown("a"), unknown("b"), unknown("c"), save("x")]);
