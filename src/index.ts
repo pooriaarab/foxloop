@@ -3,7 +3,7 @@ export { checkArgs } from "./schema.js";
 export { defineTools, FINISH, toolSpecs } from "./tools.js";
 export type * from "./types.js";
 export { DROPPED, LIMITS, fitHistory, goalMessage, newNonce, plannerPrompt, resultText, type Message } from "./prompt.js";
-export { createLoop, type BlockReason, type ApprovalRequest, type ChatReply, type CheckInput, type Loop, type LoopEvent, type LoopOptions, type MindLike, type ResultReason, type ToolDef } from "./loop.js";
+export { createLoop, type BlockReason, type ApprovalRequest, type ChatReply, type CheckInput, type Loop, type LoopEvent, type LoopOptions, type MindLike, type ResultReason, type SettleInput, type ToolDef } from "./loop.js";
 export { scriptedMind, type ScriptReply, type ScriptStep } from "./scripted.js";
 export { ASK_USER, askUserTool, type AskUserOptions } from "./ask.js";
 export { browserTools, type BrowserToolsOptions, type PawLike, type TabsLike } from "./browser.js";

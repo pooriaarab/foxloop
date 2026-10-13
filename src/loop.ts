@@ -39,7 +39,7 @@ export type LoopEvent =
   | { type: "approval-needed"; step: number; id: string; requestId: string; action: Action; expiresAt: number; detail?: string }
   | { type: "tool-result"; step: number; id: string; name: string; ok: boolean; summary: string; reason?: ResultReason; detail?: string; data?: unknown }
   | { type: "check"; step: number; ok: boolean; checks: CheckResult["checks"]; problem?: string }
-  | { type: "done"; step: number; summary: string; check: CheckResult }
+  | { type: "done"; step: number; summary: string; check: CheckResult; settled?: true }
   | { type: "blocked"; step: number; reason: BlockReason; message: string }
   | { type: "aborted"; step: number };
 
@@ -49,6 +49,16 @@ export interface CheckInput {
   summary: string;
   /** The check of the newest tool result, if that result had one. */
   lastCheck?: CheckResult;
+}
+
+/** What `settle` gets: the results of the reply that just ran. */
+export interface SettleInput {
+  goal: string;
+  step: number;
+  /** The tool results of that reply, in order. */
+  results: { name: string; ok: boolean; summary: string }[];
+  /** Aborts when the model answers first or the run stops. */
+  signal: AbortSignal;
 }
 
 export interface LoopOptions {
@@ -72,6 +82,15 @@ export interface LoopOptions {
   firstRead?: string;
   /** Decides if `finish` passes. Default: the newest tool result must carry a passing check. */
   check?: (input: CheckInput) => CheckResult | Promise<CheckResult>;
+  /**
+   * After a reply whose tool calls ran and whose last result is ok, a fast
+   * host check of "is the goal reached?" (S1-S7). It runs side by side with
+   * the next model call. A summary from it goes through `check`; when that
+   * passes before the model answers, the loop stops the model call and ends
+   * `done` with `settled: true`. Anything else (undefined, empty, a throw, a
+   * failed check, a later answer) leaves the model's answer to count.
+   */
+  settle?: (input: SettleInput) => Promise<string | undefined>;
   /** Called when the gate asks. Show `action` to the human; return the token from `host.approve`, or null for no. */
   onApproval?: (request: ApprovalRequest) => Promise<string | null>;
   /** Gets one entry per event, before the loop goes on. A foxtrail `Log` fits. If a write fails, the run stops. */
@@ -217,6 +236,10 @@ export function createLoop(options: LoopOptions): Loop {
     let lastCheck: CheckResult | undefined;
     /** Why the rest of the current reply must not run (M3-M7). */
     let endBatch: string | undefined;
+    /** The results of the current reply, for `settle` (S5). */
+    let batch: { name: string; ok: boolean; summary: string }[] = [];
+    /** A `settle` that runs beside the next model call. */
+    let settling: { answer: Promise<string | undefined>; stop: AbortController } | undefined;
     const blocked = (reason: BlockReason, text: string): LoopEvent => ({ type: "blocked", step, reason, message: text });
 
     /** Runs one tool call. Returns a stop event, or undefined to go on. */
@@ -254,6 +277,7 @@ export function createLoop(options: LoopOptions): Loop {
         endBatch = `the gate denied ${name}`;
         const summary = `The gate denied this action (${why}). Nothing ran. Choose another action that this run may do.`;
         messages.push({ role: "tool", tool_call_id: id, content: resultText(name, { ok: false, summary }, nonce) });
+        batch.push({ name, ok: false, summary });
         yield { type: "tool-result", step, id, name, ok: false, summary, reason: "gate-deny" };
         return undefined;
       }
@@ -297,6 +321,7 @@ export function createLoop(options: LoopOptions): Loop {
     /** Yields a result and counts failures in a row. */
     async function* failed(result: LoopEvent): AsyncGenerator<LoopEvent, LoopEvent | undefined, undefined> {
       if (result.type === "tool-result" && !result.ok) endBatch = `${result.name} failed`;
+      if (result.type === "tool-result") batch.push({ name: result.name, ok: result.ok, summary: result.summary });
       yield result;
       failures = result.type === "tool-result" && !result.ok ? failures + 1 : 0;
       return failures >= FAIL_LIMIT ? blocked("repeated-failure", `${FAIL_LIMIT} tool results failed in a row`) : undefined;
@@ -352,8 +377,33 @@ export function createLoop(options: LoopOptions): Loop {
         // Keep the trim, so the history only grows at the end between trims (L17).
         messages.splice(0, messages.length, ...fitHistory(messages, nonce));
         const history = messages.map((m) => ({ ...m }));
-        const answer = await race(attempt(() => options.mind.chat(history, { tools: defs, signal })));
-        if (answer === ABORTED || signal.aborted) return yield { type: "aborted", step };
+        const stopModel = new AbortController();
+        const asking = attempt(() => options.mind.chat(history, { tools: defs, signal: AbortSignal.any([signal, stopModel.signal]) }));
+        const pending = settling;
+        settling = undefined;
+        if (pending) {
+          const first = await race(Promise.race([asking.then(() => undefined), pending.answer]));
+          if (first === ABORTED || signal.aborted) {
+            pending.stop.abort();
+            stopModel.abort();
+            return yield { type: "aborted", step };
+          }
+          if (first === undefined) pending.stop.abort();
+          else {
+            const summary = first.slice(0, LIMITS.summary);
+            const tried = await attempt(async () => (options.check ? options.check({ goal, summary, lastCheck }) : (lastCheck ?? NOTHING)));
+            if (tried.value?.ok) {
+              stopModel.abort();
+              yield { type: "check", step, ok: true, checks: tried.value.checks, ...(tried.value.problem ? { problem: tried.value.problem } : {}) };
+              return yield { type: "done", step, summary, check: tried.value, settled: true };
+            }
+          }
+        }
+        const answer = await race(asking);
+        if (answer === ABORTED || signal.aborted) {
+          stopModel.abort();
+          return yield { type: "aborted", step };
+        }
         if (answer.error !== undefined) return yield blocked("model-error", answer.error);
         const reply: ChatReply = answer.value;
         tokens += reply.usage ? reply.usage.inputTokens + reply.usage.outputTokens : Math.ceil((textOf(history) + textOf([reply.message])) / 4);
@@ -366,6 +416,7 @@ export function createLoop(options: LoopOptions): Loop {
         let stop: LoopEvent | undefined;
         if (calls.length === 0) stop = yield* finish(reply.message.content ?? "");
         endBatch = undefined;
+        batch = [];
         const ran: string[] = [];
         const keys = new Set<string>();
         for (const [index, c] of calls.entries()) {
@@ -396,8 +447,18 @@ export function createLoop(options: LoopOptions): Loop {
             : yield* call(c.id, c.function.name, c.function.arguments);
         }
         if (stop) return yield stop;
+        // S5: only a reply whose calls ran, and whose last result is ok, may settle the run.
+        if (options.settle && batch.length && batch.length === calls.length && batch.at(-1)?.ok) {
+          const stopSettle = new AbortController();
+          const settle = options.settle;
+          const input: SettleInput = { goal, step, results: batch.map((r) => ({ ...r })), signal: AbortSignal.any([signal, stopSettle.signal]) };
+          const said = attempt(() => settle(input)).then((r) => (typeof r.value === "string" && r.value.trim() ? r.value.trim() : undefined));
+          // A settle that answers nothing must not win the race: it waits until the model answers.
+          settling = { answer: said.then((summary) => summary ?? new Promise<never>(() => {})), stop: stopSettle };
+        }
       }
     } finally {
+      settling?.stop.abort();
       running = false;
     }
   }
