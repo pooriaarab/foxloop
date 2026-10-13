@@ -97,6 +97,22 @@ short question to the user, waits, and gives the answer back as the result.
 | U8 | The answer holds a data marker or angle brackets, and closes a data block. | The answer is in the summary, and every `<` and `>` in a summary is escaped (P5). | Isolated `tests/ask.test.ts` |
 | U9 | `ask_user` skips the gate, so a host cannot turn questions off or log them. | `ask_user` is a `read` tool on its own domain (default `user.foxloop`). The host grants that domain, and the gate and the trail see each question. | Isolated `tests/ask.test.ts` |
 
+## End the run without the last model call (`settle`)
+
+After the last send of a task, the planner is called once more only to say
+`finish` (on foxbench: 87 of 556 Saluki calls, 8.5 s each). `settle` lets the
+host ask a fast check side by side with that call. Tests: `tests/settle.test.ts`.
+
+| # | Failure mode | Wanted behaviour | Test |
+|---|---|---|---|
+| S1 | `settle` says the goal is reached, but the result check fails (for example the newest result's own check), and the run ends `done` on a wrong result. | The summary from `settle` goes through the same check as `finish`. A failed check ends nothing, sends no feedback, counts no check failure, and the model's answer counts as usual. | Isolated `tests/settle.test.ts` |
+| S2 | `settle` wins, but the model call goes on: its reply runs tools after the run ended, or the server keeps working for nothing. | When `settle` and the check pass first, the loop stops the model call (its signal aborts), runs no tool of its reply, and ends `done` with `settled: true`. | Isolated `tests/settle.test.ts` |
+| S3 | The model answers first, and a late `settle` answer ends the run or changes what runs. | The model's answer counts. The loop aborts `settle`'s signal and ignores its answer. | Isolated `tests/settle.test.ts` |
+| S4 | `settle` throws, hangs, or answers an empty summary, and the run stops or waits on it. | A throw, an empty answer or a hang counts as "not settled". A hang never holds the run: the model's answer ends the wait. | Isolated `tests/settle.test.ts` |
+| S5 | `settle` runs after a reply that did nothing or failed, so a fast check can end a run whose last step did not work, or a call is wasted. | `settle` runs only after a reply whose tool calls ran and whose last tool result is ok. Never after the first read alone, a failed or skipped call, a gate deny, or a reply with no tool calls. | Isolated `tests/settle.test.ts` |
+| S6 | The user aborts while `settle` and the model call run. | The run stops `aborted` at once, and both signals abort. | Isolated `tests/settle.test.ts` |
+| S7 | `settle` returns a long summary, or one with the data marker. | The summary is cut to the summary limit. It goes only to the `done` event, never to the model. | Isolated `tests/settle.test.ts` |
+
 ## Gate and approval
 
 | # | Failure mode | Wanted behaviour | Test |
