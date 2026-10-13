@@ -253,7 +253,7 @@ describe("B5: tab tools take the domain from the tab", () => {
   it("gives each tool the scope of what it can do", () => {
     const { tools } = fakes([]);
     expect(Object.fromEntries([...tools.values()].map((t) => [t.name, t.scope]))).toEqual({
-      snapshot: "read", open_url: "read", act: "fill", fill: "fill", click: "submit", browser_task: "submit",
+      snapshot: "read", open_url: "read", act: "fill", fill: "fill", fill_and_send: "submit", click: "submit", browser_task: "submit",
     });
   });
 });
@@ -529,6 +529,22 @@ const form = () => page([
   control(8, "Help", { role: "link", tag: "a" }),
 ]);
 
+/** The form, with its send button sending to `action` (B25). */
+const sendsTo = (action: string) => {
+  const p = form();
+  p.controls[6] = { ...p.controls[6]!, action };
+  return p;
+};
+
+/** fill_and_send of one typed value, when the field then shows `shown` (B27). */
+async function sendShown(typed: string, shown: string) {
+  const after = sendsTo("https://shop.example/pay");
+  after.controls[0] = { ...after.controls[0]!, value: shown };
+  const f = fakes([sendsTo("https://shop.example/pay"), after], [{ ok: true, value: shown }, { ok: true, submitted: true }]);
+  await f.call("snapshot", {});
+  return (await f.call("fill_and_send", { fields: { "0:1": typed }, send: "0:7" })).ok;
+}
+
 describe("B14-B23: fill sets several fields in one call", () => {
   it("B17, B22, B23: each field gets the op its control takes, in order, with a read before each later field and one at the end", async () => {
     const f = fakes(Array.from({ length: 6 }, form));
@@ -564,6 +580,138 @@ describe("B14-B23: fill sets several fields in one call", () => {
     const kept = await g.call("fill", { fields: { "0:1": "Sam Park" } });
     expect(kept.untrusted).toContain("SAM PARK");
     expect(kept.untrusted).not.toContain("Each field holds the value given.");
+  });
+
+  it("B25: fill_and_send fills, reads again, then clicks the pinned button; it needs the submit scope", async () => {
+    const typed = sendsTo("https://shop.example/pay");
+    typed.controls[0] = { ...typed.controls[0]!, value: "Sam" };
+    const f = fakes([sendsTo("https://shop.example/pay"), typed, typed, typed], [{ ok: true }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    expect(f.tool("fill_and_send").scope).toBe("submit");
+    expect(await f.describeVia("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" }))
+      .toBe('fill 1 field on https://shop.example/signup: type "Sam" into the textbox "Name"; then click the button "Send" (sends its form to https://shop.example/pay)');
+    const out = await f.call("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" });
+    expect(out.ok).toBe(true);
+    expect(out.summary).toMatch(/Filled: 0:1\..*The form was sent\./);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam", "act:0:7:click:"]);
+    expect(out.data).toEqual({ filled: [{ controlId: "0:1", op: "type", value: "Sam" }], sent: "0:7" });
+  });
+
+  it("B25: many fields that change at once are no page change; the button is still clicked", async () => {
+    const done = sendsTo("https://shop.example/pay");
+    for (const i of [0, 2, 3]) done.controls[i] = { ...done.controls[i]!, value: ["Sam", "L", "2026-10-20"][[0, 2, 3].indexOf(i)]! };
+    done.controls[1] = { ...done.controls[1]!, value: "Toronto (YYZ)" };
+    done.controls[4] = { ...done.controls[4]!, checked: true };
+    const reads = [sendsTo("https://shop.example/pay"), ...Array.from({ length: 4 }, () => sendsTo("https://shop.example/pay")), done];
+    const f = fakes(reads, [{ ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: true }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:1": "Sam", "0:2": "Toronto (YYZ)", "0:3": "L", "0:4": "2026-10-20", "0:5": true }, send: "0:7" });
+    expect(out.summary).not.toMatch(/Nothing was sent/);
+    expect(f.calls.filter((c) => c.startsWith("act:")).at(-1)).toBe("act:0:7:click:");
+  });
+
+  it("B26: a change handler that rewrites another field after the fill refuses the click; nothing is sent", async () => {
+    const start = sendsTo("https://shop.example/pay");
+    start.controls[2] = { ...start.controls[2]!, value: "M" };
+    const rewritten = sendsTo("https://shop.example/pay");
+    rewritten.controls[0] = { ...rewritten.controls[0]!, value: "Sam" };
+    rewritten.controls[2] = { ...rewritten.controls[2]!, value: "L" };
+    const f = fakes([start, rewritten], [{ ok: true, value: "Sam" }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/0:3 .*Nothing was sent/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam"]);
+    expect((out.data as { sent?: string }).sent).toBeUndefined();
+  });
+
+  it("B26: a filled field that a handler rewrote refuses the click, even when foxpaw read the rewritten value", async () => {
+    const rewritten = sendsTo("https://shop.example/pay");
+    rewritten.controls[0] = { ...rewritten.controls[0]!, value: "GB00 ATTACKER" };
+    const f = fakes([sendsTo("https://shop.example/pay"), rewritten], [{ ok: true, value: "GB00 ATTACKER" }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:1": "DE89 3704" }, send: "0:7" });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/Nothing was sent/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:DE89 3704"]);
+  });
+
+  it("B26: typed text the page groups with spaces or dashes (a card number) still sends; other characters do not", async () => {
+    const grouped = sendsTo("https://shop.example/pay");
+    grouped.controls[0] = { ...grouped.controls[0]!, value: "4242 4242 4242 4242" };
+    const f = fakes([sendsTo("https://shop.example/pay"), grouped], [{ ok: true, value: "4242 4242 4242 4242" }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).ok).toBe(true);
+    const other = sendsTo("https://shop.example/pay");
+    other.controls[0] = { ...other.controls[0]!, value: "4242 4242 4242 4243" };
+    const g = fakes([sendsTo("https://shop.example/pay"), other], [{ ok: true, value: "4242 4242 4242 4243" }]);
+    await g.call("snapshot", {});
+    expect((await g.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+  });
+
+  it("B26: a field the host redacts (a card number) counts by the value foxpaw read right after typing it", async () => {
+    const redacted = sendsTo("https://shop.example/pay");
+    redacted.controls[0] = { ...redacted.controls[0]!, value: "[redacted]", redacted: true } as typeof redacted.controls[0];
+    const f = fakes([sendsTo("https://shop.example/pay"), redacted], [{ ok: true, value: "4242 4242 4242 4242" }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).ok).toBe(true);
+    const g = fakes([sendsTo("https://shop.example/pay"), redacted], [{ ok: true, value: "4000 0000 0000 0002" }]);
+    await g.call("snapshot", {});
+    expect((await g.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+  });
+
+  it("B27: only spaces or dashes in a card number or an IBAN may differ; other typed text must match", async () => {
+    for (const [typed, shown] of [["10.00", "1000"], ["-50", "50"], ["1/12/2026", "11/2/2026"], ["pay@acme.com", "pay@acmec.om"]] as const) expect(await sendShown(typed, shown), `${typed} vs ${shown}`).toBe(false);
+    expect(await sendShown("4242424242424242", "4242-4242-4242-4242")).toBe(true);
+    expect(await sendShown("GB29NWBK60161331926819", "gb29 nwbk 6016 1331 9268 19")).toBe(true);
+  });
+
+  it("B27: a value shaped like a mask is not skipped unless the host marked the field redacted", async () => {
+    const masked = sendsTo("https://shop.example/pay");
+    masked.controls[0] = { ...masked.controls[0]!, value: "*9999" };
+    const f = fakes([sendsTo("https://shop.example/pay"), masked], [{ ok: true, value: "4242424242424242" }]);
+    await f.call("snapshot", {});
+    expect((await f.call("fill_and_send", { fields: { "0:1": "4242424242424242" }, send: "0:7" })).summary).toMatch(/Nothing was sent/);
+  });
+
+  it("B26: a date the page wrote in its own form, as foxpaw read it right after, still sends", async () => {
+    const done = sendsTo("https://shop.example/pay");
+    done.controls[3] = { ...done.controls[3]!, value: "Oct 20, 2026" };
+    const f = fakes([sendsTo("https://shop.example/pay"), done], [{ ok: true, value: "Oct 20, 2026" }, { ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:4": "2026-10-20" }, send: "0:7" });
+    expect(out.ok).toBe(true);
+    expect(f.calls.filter((c) => c.startsWith("act:")).at(-1)).toBe("act:0:7:click:");
+  });
+
+  it("B25: send must name a button, not a field or a link", async () => {
+    for (const id of ["0:1", "0:8"]) {
+      const f = fakes([form()]);
+      await f.call("snapshot", {});
+      const out = await f.call("fill_and_send", { fields: { "0:1": "Sam" }, send: id });
+      expect(out.ok).toBe(false);
+      expect(out.summary).toMatch(/not a button/);
+      expect(f.calls.some((c) => c.startsWith("act:"))).toBe(false);
+    }
+  });
+
+  it("B25: a button whose destination moved after the fields is not clicked", async () => {
+    const f = fakes([sendsTo("https://shop.example/pay"), sendsTo("https://attacker.test/pay")]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/Nothing was sent/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam"]);
+    expect((out.data as { sent?: string }).sent).toBeUndefined();
+  });
+
+  it("B25: a refused field stops the call before the click", async () => {
+    const f = fakes([form(), form()], [{ ok: false, reason: "covered" }]);
+    await f.call("snapshot", {});
+    const out = await f.call("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" });
+    expect(out.ok).toBe(false);
+    expect(out.summary).toMatch(/Nothing was sent/);
+    expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam"]);
   });
 
   it("B17: describe names every control, op and value, and the page", async () => {
