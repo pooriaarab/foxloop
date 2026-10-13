@@ -75,12 +75,56 @@ function pinned(page: Snapshot, target: Target) {
   return same ? control : undefined;
 }
 
+/**
+ * Typed text and what the field shows, the same but for spaces or dashes between characters, when both are a card
+ * number (digits only) or an IBAN (case ignored); else they must match exactly (B27).
+ */
+function sameGrouped(shown: string, typed: string): boolean {
+  const a = ungrouped(shown);
+  return a === ungrouped(typed) && (/^\d+$/.test(a) || /^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(a));
+}
+function ungrouped(text: string): string {
+  return text.trim().replace(/(?<=\w)[\s-]+(?=\w)/g, "").toUpperCase();
+}
+/** The host redacted this control's value in its reads (foxmate marks it when foxpass redacts it), B27. */
+const redactedByHost = (c: Snapshot["controls"][number]) => (c as { redacted?: unknown }).redacted === true;
+
 /** The control holds what its `fill` request gave: the same text, the same option, the box as asked (B24). */
 function holds(c: Snapshot["controls"][number], request: ActRequest): boolean {
   if (request.op === "check" || request.op === "uncheck") return c.checked === (request.op === "check");
-  if (request.op === "type") return c.value === request.value;
+  if (request.op === "date") return c.value === request.value;
+  // A field may group typed text (a card number in fours); the characters themselves must match (B26).
+  if (request.op === "type") return c.value === request.value || sameGrouped(c.value, request.value ?? "");
   if (request.op === "select") return c.value === request.value || (c.options?.some((o) => o.selected && (o.value === request.value || o.label === request.value)) ?? false);
   return false;
+}
+
+/** A field whose value can be sent: not a button, a link or other click-only control. */
+const isField = (c: Snapshot["controls"][number]) => !c.submit && (BOOLEAN_ROLES.has(c.role) || TEXT_ROLES.has(c.role) || c.tag === "select" || c.tag === "textarea");
+
+/**
+ * Why fill_and_send must not click: a filled field that does not hold its approved value, or another field that changed
+ * since the approval snapshot (B26). A date or a suggestion pick may hold the page's own form of the value, as foxpaw read
+ * it right after setting it; typed text and boxes must match exactly.
+ */
+function drift(before: Snapshot, now: Snapshot, targets: FillTarget[], seen: Map<string, string>): string | undefined {
+  const given = new Map(targets.map((t) => [t.id, t.request]));
+  const was = new Map(before.controls.map((c) => [c.id, c]));
+  for (const c of now.controls) {
+    if (!isField(c)) continue;
+    const request = given.get(c.id);
+    if (request) {
+      const own = (request.op === "date" || request.op === "select") && seen.has(c.id) && c.value === seen.get(c.id);
+      // The host redacts a card number or a code in every read: count the value foxpaw read right after typing it.
+      const hidden = request.op === "type" && redactedByHost(c) && seen.has(c.id) && (seen.get(c.id) === request.value || sameGrouped(seen.get(c.id)!, request.value ?? ""));
+      if (hidden) continue;
+      if (!holds(c, request) && !own) return `field ${c.id} no longer holds the approved value`;
+      continue;
+    }
+    const old = was.get(c.id);
+    if (!old ? c.value !== "" || c.checked === true : old.value !== c.value || (old.checked ?? false) !== (c.checked ?? false)) return `field ${c.id} changed after the approval`;
+  }
+  return undefined;
 }
 
 /** A fill's change text with no line for a field that holds the value given (B24). */
@@ -190,6 +234,14 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     }
     return { ...args, targets };
   };
+  /** Pins the fields as `fill` does and the button that sends, with its destination (B25). */
+  const pinSend = async (args: Record<string, unknown>) => {
+    const withFields = await pinFields(args);
+    const { control: c, url } = await named({ controlId: args.send });
+    if (c.role !== "button" || c.secret) throw new Error(`Control ${c.id} is a ${c.role}, not a button. send names the button that sends the form.`);
+    if ((withFields.targets as FillTarget[]).some((t) => t.id === c.id)) throw new Error(`Control ${c.id} is the button; leave it out of fields.`);
+    return { ...withFields, sendTarget: { ...targetOf(c, url), action: c.action ?? null } satisfies SendTarget };
+  };
   const operate = async (args: Record<string, unknown>, request: ActRequest, signal: AbortSignal): Promise<ToolOutput> => {
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const tabId = await options.tabId();
@@ -220,7 +272,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   };
 
   /** Sets each pinned field on the snapshot the gate judged, then reads the page once (B17-B20, B22, B23). */
-  const fillFields = async (args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutput> => {
+  const fillFields = async (args: Record<string, unknown>, signal: AbortSignal, seen?: Map<string, string>): Promise<ToolOutput> => {
     if (signal.aborted) return { ok: false, summary: "The run was aborted. Nothing ran." };
     const tabId = await options.tabId();
     const targets = args.targets as FillTarget[] | undefined;
@@ -262,6 +314,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         break;
       }
       filled.push({ controlId: t.id, op: t.request.op, ...(t.request.value !== undefined ? { value: t.request.value } : {}) });
+      if (result.value !== undefined) seen?.set(t.id, result.value);
       await paw.settle(tabId, { frameId: control.frameId }, api());
       // A field that sent the form: the rest would run on the next page (B20).
       if (result.submitted) {
@@ -287,6 +340,27 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     const stopBatch = sent ? "the form was sent" : changed(page, after) ?? (change?.full ? "the page changed" : undefined);
     const text = change && after && !change.full ? withoutGiven(change.text, after, targets) : change?.text;
     return { ok: true, summary: `Done: ${done}${sent ? " The form was sent." : ""}${notDone}`, untrusted: text, data, ...(stopBatch ? { stopBatch } : {}) };
+  };
+
+  /** The fields, a fresh read, then the pinned button, if it is still the same control with the same destination (B25). */
+  const fillAndSend = async (args: Record<string, unknown>, signal: AbortSignal): Promise<ToolOutput> => {
+    const before = last?.page;
+    const seen = new Map<string, string>();
+    const filled = await fillFields(args, signal, seen);
+    const data = filled.data as { filled: unknown[] };
+    if (!filled.ok) return { ...filled, summary: `${filled.summary} Nothing was sent.` };
+    const send = args.sendTarget as SendTarget;
+    const tabId = await options.tabId();
+    const now = last?.tabId === tabId ? last.page : undefined;
+    // Only a send, a new address or a control that went away or changed stops it; many fields that took their values do not.
+    if (filled.stopBatch === "the form was sent") return { ...filled, summary: `${filled.summary} A field sent the form, so the button was not clicked.` };
+    const why = before && now ? changed(before, now) ?? drift(before, now, args.targets as FillTarget[], seen) : "the page could not be read again";
+    if (why) return { ...filled, ok: false, summary: `${filled.summary} Stopped: ${why}. Nothing was sent.` };
+    const c = now?.url === send.url ? now.controls.find((x) => x.id === send.id && x.node === send.node && x.frameId === send.frameId && x.role === send.role
+      && x.label === send.label && x.submit === send.submit && (x.action ?? null) === send.action) : undefined;
+    if (!now || !c) return { ok: false, summary: `${filled.summary} The button changed after the fields. Nothing was sent.`, ...(filled.untrusted ? { untrusted: filled.untrusted } : {}), data };
+    const click = await operate({ target: targetOf(c, now.url) }, { op: "click" }, signal);
+    return { ...click, summary: `${filled.summary.replace(/^Done: /, "")} ${click.summary}`, data: { ...data, ...(click.ok ? { sent: send.id } : {}) } };
   };
 
   const control = { controlId: { type: "string", description: "The control id from the last snapshot, for example \"0:12\"." } };
@@ -334,6 +408,21 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const targets = args.targets as FillTarget[];
         const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
         return `fill ${targets.length} field${targets.length === 1 ? "" : "s"} on ${targets[0]?.url ?? "the page"}: ${parts.join("; ")}`;
+      },
+    },
+    {
+      name: "fill_and_send",
+      description: "Set several fields from the last snapshot, then click the button that sends the form, in one call. fields as in fill; send is the button's control id.",
+      parameters: { type: "object", properties: { fields: { type: "object", additionalProperties: true }, send: { type: "string" } }, required: ["fields", "send"] },
+      scope: "submit",
+      domain: tabDomain,
+      prepare: pinSend,
+      run: (args, ctx: ToolContext) => serial(async () => (await moved(ctx)) ?? fillAndSend(args, ctx.signal)),
+      describe: (args) => {
+        const targets = args.targets as FillTarget[];
+        const send = args.sendTarget as SendTarget;
+        const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
+        return `fill ${targets.length} field${targets.length === 1 ? "" : "s"} on ${targets[0]?.url ?? "the page"}: ${parts.join("; ")}; then click the ${send.role} "${send.label}"${send.action ? ` (sends its form to ${send.action})` : send.submit ? " (sends its form)" : ""}`;
       },
     },
     {
@@ -426,6 +515,11 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
 export interface TaskForm extends FormPlan {
   /** The page address the preview read. */
   url: string;
+}
+
+/** The button a `fill_and_send` call clicks, pinned with where its form sends (B25). */
+interface SendTarget extends Target {
+  action: string | null;
 }
 
 /** A field that a `fill` call is pinned to, and what foxpaw does to it (B17). */
