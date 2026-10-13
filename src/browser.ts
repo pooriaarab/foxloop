@@ -29,6 +29,11 @@ export interface BrowserToolsOptions {
   /** The foxpaw chooser for `browser_task`. Default: foxpaw's `ruleChooser()`. */
   chooser?: Chooser;
   paw?: PawLike;
+  /**
+   * The passwords the user's own goal names, for the page at `url`. `fill` and `fill_and_send` type one of them,
+   * exactly as given, into a password field of that page (B29). Default: none, so they refuse every password field (B15).
+   */
+  passwords?: (url: string) => readonly string[];
 }
 
 const LOAD_WAIT_MS = 15_000;
@@ -67,6 +72,9 @@ function changed(before: Snapshot, after: Snapshot | undefined): string | undefi
   const moved = before.controls.some((c) => now.get(c.id)?.role !== c.role || now.get(c.id)?.label !== c.label);
   return moved ? "a control on the page is gone or changed" : undefined;
 }
+
+/** The address of the frame that holds `c`, or "" when the snapshot does not list it (B29). */
+const frameUrlOf = (page: Snapshot, c: Snapshot["controls"][number]) => page.frames.find((f) => f.frameId === c.frameId)?.url ?? "";
 
 /** The control of `page` that `target` pinned, or undefined when it changed (B8). */
 function pinned(page: Snapshot, target: Target) {
@@ -116,7 +124,8 @@ function drift(before: Snapshot, now: Snapshot, targets: FillTarget[], seen: Map
     if (request) {
       const own = (request.op === "date" || request.op === "select") && seen.has(c.id) && c.value === seen.get(c.id);
       // The host redacts a card number or a code in every read: count the value foxpaw read right after typing it.
-      const hidden = request.op === "type" && redactedByHost(c) && seen.has(c.id) && (seen.get(c.id) === request.value || sameGrouped(seen.get(c.id)!, request.value ?? ""));
+      // foxpaw reads a filled password field as "•••" (B29): it counts the same way.
+      const hidden = request.op === "type" && (redactedByHost(c) || c.secret) && seen.has(c.id) && (seen.get(c.id) === request.value || sameGrouped(seen.get(c.id)!, request.value ?? ""));
       if (hidden) continue;
       if (!holds(c, request) && !own) return `field ${c.id} no longer holds the approved value`;
       continue;
@@ -146,9 +155,15 @@ function withoutGiven(text: string, after: Snapshot, targets: FillTarget[]): str
   return [...kept, given.size === targets.length ? "Each field holds the value given." : `Fields that hold the value given: ${[...given].map((g) => g.slice(1, -2)).join(", ")}.`].join("\n");
 }
 
-/** The foxpaw request that sets `control` to `value` in `fill`. Throws for a control or a value that `fill` refuses (B15, B16, B21). */
-function fillRequest(c: Snapshot["controls"][number], value: unknown): ActRequest {
-  if (c.secret) throw new Error(`Control ${c.id} is a password field. fill does not type into one; use act.`);
+/**
+ * The foxpaw request that sets `control` to `value` in `fill`. Throws for a control or a value that `fill` refuses (B15, B16, B21).
+ * A password field takes only one of `passwords`, exactly (B29).
+ */
+function fillRequest(c: Snapshot["controls"][number], value: unknown, passwords: readonly string[]): ActRequest {
+  if (c.secret) {
+    if (typeof value === "string" && passwords.includes(value)) return { op: "type", value };
+    throw new Error(`Control ${c.id} is a password field. fill does not type into one; use act.`);
+  }
   if (c.submit || !(BOOLEAN_ROLES.has(c.role) || TEXT_ROLES.has(c.role) || c.tag === "select" || c.tag === "textarea")) {
     throw new Error(`Control ${c.id} is a ${c.role}, not a field. fill sets fields only; use click.`);
   }
@@ -217,7 +232,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   };
   /** Pins the control the model named, so the gate judges and the human approves this exact control. */
   const targetOf = (c: Snapshot["controls"][number], url: string): Target =>
-    ({ tabId: last?.tabId ?? -1, generation: last?.generation ?? -1, id: c.id, frameId: c.frameId, node: c.node, guard: c.guard, role: c.role, label: c.label, submit: c.submit, url });
+    ({ tabId: last?.tabId ?? -1, generation: last?.generation ?? -1, id: c.id, frameId: c.frameId, node: c.node, guard: c.guard, role: c.role, label: c.label, submit: c.submit, secret: c.secret, url, frameUrl: last ? frameUrlOf(last.page, c) : "" });
   const pin = async (args: Record<string, unknown>) => {
     const { control: c, url } = await named(args);
     return { ...args, target: targetOf(c, url) };
@@ -230,7 +245,9 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     const targets: FillTarget[] = [];
     for (const [controlId, value] of fields) {
       const { control: c, url } = await named({ controlId });
-      targets.push({ ...targetOf(c, url), request: fillRequest(c, value) });
+      // A password field is judged by the address of its own frame: a frame from another site on the run's page gets none (B29).
+      const target = targetOf(c, url);
+      targets.push({ ...target, request: fillRequest(c, value, c.secret && target.frameUrl ? options.passwords?.(target.frameUrl) ?? [] : []) });
     }
     return { ...args, targets };
   };
@@ -291,7 +308,8 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         break;
       }
       let control = controls[i]!;
-      if (i > 0) {
+      // A password is typed only after a fresh read shows the same password field in the same frame, also as the first field (B29).
+      if (i > 0 || t.secret) {
         // foxpaw acts only on the page as last read, and a typed value changes it: read again, through
         // the snapshot hook, and find the same control. Its value or text around it may differ, so its
         // guard is the new one; its id, node, frame, role, label and destination must not (B22).
@@ -299,9 +317,10 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         const read2 = await read(tabId).catch(() => undefined);
         const same = read2?.controls.find((c) => c.id === control.id && c.node === control.node && c.frameId === control.frameId
           && c.role === control.role && c.label === control.label && c.submit === control.submit && c.action === control.action
-          // A field that turned into a password field since the approval never gets a value meant to be seen (B15).
-          && !c.secret);
-        if (!read2 || !same || read2.url !== page.url) {
+          // A field that turned into a password field since the approval never gets a value meant to be seen (B15);
+          // one that stopped being one would show its password to the page text (B29).
+          && c.secret === control.secret && c.type === control.type);
+        if (!read2 || !same || read2.url !== page.url || (t.secret && frameUrlOf(read2, same) !== t.frameUrl)) {
           refused = { id: t.id, reason: "stale", detail: read2 ? "the control changed after an earlier field" : "the page could not be read again" };
           break;
         }
@@ -313,7 +332,8 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         refused = { id: t.id, reason: result.reason ?? "refused", ...(result.detail ? { detail: result.detail } : {}) };
         break;
       }
-      filled.push({ controlId: t.id, op: t.request.op, ...(t.request.value !== undefined ? { value: t.request.value } : {}) });
+      // A password never goes into the result's data (B29).
+      filled.push({ controlId: t.id, op: t.request.op, ...(t.request.value !== undefined && !t.secret ? { value: t.request.value } : {}) });
       if (result.value !== undefined) seen?.set(t.id, result.value);
       await paw.settle(tabId, { frameId: control.frameId }, api());
       // A field that sent the form: the rest would run on the next page (B20).
@@ -406,7 +426,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       run: (args, ctx: ToolContext) => serial(async () => (await moved(ctx)) ?? fillFields(args, ctx.signal)),
       describe: (args) => {
         const targets = args.targets as FillTarget[];
-        const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
+        const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.secret ? "•••" : t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
         return `fill ${targets.length} field${targets.length === 1 ? "" : "s"} on ${targets[0]?.url ?? "the page"}: ${parts.join("; ")}`;
       },
     },
@@ -421,7 +441,7 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       describe: (args) => {
         const targets = args.targets as FillTarget[];
         const send = args.sendTarget as SendTarget;
-        const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
+        const parts = targets.map((t) => `${t.request.op}${t.request.value !== undefined ? ` "${t.secret ? "•••" : t.request.value}"` : ""} ${t.request.op === "type" ? "into" : "on"} the ${t.role} "${t.label}"`);
         return `fill ${targets.length} field${targets.length === 1 ? "" : "s"} on ${targets[0]?.url ?? "the page"}: ${parts.join("; ")}; then click the ${send.role} "${send.label}"${send.action ? ` (sends its form to ${send.action})` : send.submit ? " (sends its form)" : ""}`;
       },
     },
@@ -539,5 +559,9 @@ interface Target {
   role: string;
   label: string;
   submit: boolean;
+  /** A password field: `fill` typed only a password from `passwords` into it (B29). */
+  secret: boolean;
   url: string;
+  /** The address of the control's own frame, which B29 judges a password field by; "" when the snapshot does not list it. */
+  frameUrl: string;
 }
