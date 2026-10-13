@@ -231,6 +231,8 @@ export function createLoop(options: LoopOptions): Loop {
     const nonce = newNonce();
     const messages: Message[] = [{ role: "system", content: plannerPrompt({ denials: Boolean(options.denials), batch: { max: maxCalls, last } }) }, { role: "user", content: goalMessage(goal, nonce) }];
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
+    /** The keys of the calls that were let run, newest last, for a pair that repeats (L22). */
+    const recent: string[] = [];
     // Gate denials in a row that went back to the model (G12, G13).
     let denied = 0;
     let lastCheck: CheckResult | undefined;
@@ -438,13 +440,20 @@ export function createLoop(options: LoopOptions): Loop {
           }
           const key = `${c.function.name} ${c.function.arguments}`;
           // Identical calls in one reply count once, so a reply cannot hit the limit alone (M9).
-          if (!keys.has(key)) repeats = key === lastKey ? repeats + 1 : 1;
+          if (!keys.has(key)) {
+            repeats = key === lastKey ? repeats + 1 : 1;
+            recent.push(key);
+          }
           keys.add(key);
           lastKey = key;
+          // L22: the same two calls, the third time in a row (A B A B A B). A read tool in the pair does not count.
+          const tail = recent.slice(-2 * REPEAT_LIMIT);
+          const looped = tail.length === 2 * REPEAT_LIMIT && tail[0] !== tail[1] && tail.every((k, i) => k === tail[i % 2])
+            && tail.slice(0, 2).every((k) => tools.get(k.slice(0, k.indexOf(" ")))?.scope !== "read");
           if (signal.aborted) stop = { type: "aborted", step };
-          else stop = repeats >= REPEAT_LIMIT
-            ? blocked("repeated-call", `the planner asked for the same ${c.function.name} call ${REPEAT_LIMIT} times in a row`)
-            : yield* call(c.id, c.function.name, c.function.arguments);
+          else if (repeats >= REPEAT_LIMIT) stop = blocked("repeated-call", `the planner asked for the same ${c.function.name} call ${REPEAT_LIMIT} times in a row`);
+          else if (looped) stop = blocked("repeated-call", `the planner asked for the same two calls ${REPEAT_LIMIT} times in a row`);
+          else stop = yield* call(c.id, c.function.name, c.function.arguments);
         }
         if (stop) return yield stop;
         // S5: only a reply whose calls ran, and whose last result is ok, may settle the run.
