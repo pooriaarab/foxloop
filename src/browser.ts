@@ -75,6 +75,33 @@ function pinned(page: Snapshot, target: Target) {
   return same ? control : undefined;
 }
 
+/** The control holds what its `fill` request gave: the same text, the same option, the box as asked (B24). */
+function holds(c: Snapshot["controls"][number], request: ActRequest): boolean {
+  if (request.op === "check" || request.op === "uncheck") return c.checked === (request.op === "check");
+  if (request.op === "type") return c.value === request.value;
+  if (request.op === "select") return c.value === request.value || (c.options?.some((o) => o.selected && (o.value === request.value || o.label === request.value)) ?? false);
+  return false;
+}
+
+/** A fill's change text with no line for a field that holds the value given (B24). */
+function withoutGiven(text: string, after: Snapshot, targets: FillTarget[]): string {
+  const given = new Set(targets.filter((t) => {
+    const c = after.controls.find((a) => a.id === t.id);
+    return c && !c.secret && holds(c, t.request);
+  }).map((t) => `[${t.id}] `));
+  if (!given.size) return text;
+  const out: string[] = [];
+  let section = "";
+  for (const line of text.split("\n")) {
+    if (/^(Changed|New|Gone|New text|Acted on):$/.test(line)) section = line;
+    if ((section === "Changed:" || section === "Acted on:") && [...given].some((g) => line.startsWith(g))) continue;
+    out.push(line);
+  }
+  // A heading with no lines under it goes too.
+  const kept = out.filter((line, i) => !(/^(Changed|Acted on):$/.test(line) && (i + 1 >= out.length || !out[i + 1]!.startsWith("["))));
+  return [...kept, given.size === targets.length ? "Each field holds the value given." : `Fields that hold the value given: ${[...given].map((g) => g.slice(1, -2)).join(", ")}.`].join("\n");
+}
+
 /** The foxpaw request that sets `control` to `value` in `fill`. Throws for a control or a value that `fill` refuses (B15, B16, B21). */
 function fillRequest(c: Snapshot["controls"][number], value: unknown): ActRequest {
   if (c.secret) throw new Error(`Control ${c.id} is a password field. fill does not type into one; use act.`);
@@ -258,7 +285,8 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
       return { ok: false, summary: `foxpaw did not act on control ${refused.id}: ${refused.reason}. ${done}${notDone} ${next}`, ...(untrusted ? { untrusted } : {}), data };
     }
     const stopBatch = sent ? "the form was sent" : changed(page, after) ?? (change?.full ? "the page changed" : undefined);
-    return { ok: true, summary: `Done: ${done}${sent ? " The form was sent." : ""}${notDone}`, untrusted: change?.text, data, ...(stopBatch ? { stopBatch } : {}) };
+    const text = change && after && !change.full ? withoutGiven(change.text, after, targets) : change?.text;
+    return { ok: true, summary: `Done: ${done}${sent ? " The form was sent." : ""}${notDone}`, untrusted: text, data, ...(stopBatch ? { stopBatch } : {}) };
   };
 
   const control = { controlId: { type: "string", description: "The control id from the last snapshot, for example \"0:12\"." } };
