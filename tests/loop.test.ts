@@ -100,6 +100,20 @@ describe("L1-L6: stops", () => {
     expect(paging.runs.length).toBe(3);
   });
 
+  it("L22: a pair on a page whose address changes each time goes on; the same address still stops", async () => {
+    // Positional ids repeat on pages with the same layout (page 1, page 2, ...): a new address forgets the calls before it.
+    let page = 0;
+    const paging = noteTool((args) => ({ ok: true, summary: "saved", check: ok, ...(args.text === "next" ? { url: `https://notes.local/p${++page}` } : {}) }));
+    const turns = [save("next"), save("tick"), save("next"), save("tick"), save("next"), save("tick"), save("next"), finish];
+    const moved = last(await collect((await setup([paging.tool], turns)).loop.run("Page on.")));
+    expect(moved, JSON.stringify(moved)).toMatchObject({ type: "done" });
+    expect(paging.runs.length).toBe(7);
+    const still = noteTool(() => ({ ok: true, summary: "saved", url: "https://notes.local/p1" }));
+    const end = last(await collect((await setup([still.tool], turns)).loop.run("Page on.")));
+    expect(end).toMatchObject({ type: "blocked", reason: "repeated-call" });
+    expect(still.runs.length).toBe(5);
+  });
+
   it("L3: stops after 3 failed results in a row", async () => {
     const note = noteTool();
     const { loop } = await setup([note.tool], [unknown("a"), unknown("b"), unknown("c"), save("x")]);
