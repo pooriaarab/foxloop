@@ -628,6 +628,19 @@ describe("B14-B23: fill sets several fields in one call", () => {
     expect((await g.call("click", { controlId: "0:7" })).summary).toMatch(/the page shows the same form again/);
   });
 
+  it("B30: a form that came back names each field that lost its value since the send", async () => {
+    // The colour radio was checked before the send; the page came back with it unchecked and a size error.
+    const before = form();
+    before.controls[4] = { ...before.controls[4]!, checked: true };
+    before.controls[0] = { ...before.controls[0]!, value: "Sam" };
+    const back = form();
+    back.controls[0] = { ...back.controls[0]!, value: "Sam" };
+    const f = fakes([before, back], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("click", { controlId: "0:7" });
+    expect(out.summary).toBe('Done: click on control 0:7. The form was sent, but the page shows the same form again: read it for an error or a field that needs a value. These fields lost the value they had before the send: [0:5] checkbox "Terms".');
+  });
+
   it("B30: a send whose page no longer shows the form, or a click that sent nothing, reads as before", async () => {
     const thanks = page([control(1, "Home", { role: "link", tag: "a" })], { url: "https://shop.example/sent", title: "Sent", frames: [{ frameId: 0, url: "https://shop.example/sent", key: "k2" }] });
     const f = fakes([form(), thanks], [{ ok: true, submitted: true }]);
