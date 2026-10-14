@@ -73,6 +73,17 @@ function changed(before: Snapshot, after: Snapshot | undefined): string | undefi
   return moved ? "a control on the page is gone or changed" : undefined;
 }
 
+/**
+ * The site showed the form of the pressed button again after a send: the button and every field of its form are on
+ * `after`, each with the same role and label (B30). The page may be the same or a new one.
+ */
+function cameBack(before: Snapshot, after: Snapshot | undefined, pressed: Snapshot["controls"][number]): boolean {
+  if (!after || pressed.form === undefined) return false;
+  const fields = before.controls.filter((c) => c.frameId === pressed.frameId && c.form === pressed.form && isField(c));
+  const shown = new Set(after.controls.map((c) => `${c.role}\n${c.label}`));
+  return fields.length > 0 && [pressed, ...fields].every((c) => shown.has(`${c.role}\n${c.label}`));
+}
+
 /** The address of the frame that holds `c`, or "" when the snapshot does not list it (B29). */
 const frameUrlOf = (page: Snapshot, c: Snapshot["controls"][number]) => page.frames.find((f) => f.frameId === c.frameId)?.url ?? "";
 
@@ -281,7 +292,9 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     }
     await paw.settle(tabId, { frameId: control.frameId }, api());
     const after = await read(tabId).catch(() => undefined);
-    const sent = result.submitted ? " The form was sent." : "";
+    const sent = !result.submitted ? "" : cameBack(page, after, control)
+      ? " The form was sent, but the page shows the same form again: read it for an error or a field that needs a value."
+      : " The form was sent.";
     // A diff on the same document; the full page after a navigation, a reload or a big change (B9-B11).
     const change = after ? paw.changeText(masked(page), masked(after), { target: control.id }) : undefined;
     const stopBatch = result.submitted ? "the form was sent" : changed(page, after) ?? (change?.full ? "the page changed" : undefined);

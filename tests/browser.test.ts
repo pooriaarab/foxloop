@@ -595,7 +595,8 @@ describe("B14-B23: fill sets several fields in one call", () => {
   it("B25: fill_and_send fills, reads again, then clicks the pinned button; it needs the submit scope", async () => {
     const typed = sendsTo("https://shop.example/pay");
     typed.controls[0] = { ...typed.controls[0]!, value: "Sam" };
-    const f = fakes([sendsTo("https://shop.example/pay"), typed, typed, typed], [{ ok: true }, { ok: true, submitted: true }]);
+    const paid = page([control(1, "Home", { role: "link", tag: "a" })], { url: "https://shop.example/pay", frames: [{ frameId: 0, url: "https://shop.example/pay", key: "k2" }] });
+    const f = fakes([sendsTo("https://shop.example/pay"), typed, paid], [{ ok: true }, { ok: true, submitted: true }]);
     await f.call("snapshot", {});
     expect(f.tool("fill_and_send").scope).toBe("submit");
     expect(await f.describeVia("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" }))
