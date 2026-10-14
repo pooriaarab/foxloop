@@ -183,6 +183,13 @@ describe("B2, B3: act and click need a fresh snapshot", () => {
     expect(calls).toEqual(["snapshot", "act:0:1:type:sam@example.com", "acted:Email", "snapshot"]);
   });
 
+  it("L22: each result names the address of the page it read last, so the loop sees a new page", async () => {
+    const next = page([control(1, "Next", { role: "button", tag: "button" })], { url: "https://shop.example/list?p=2" });
+    const { tool, call } = fakes([page([control(1, "Next", { role: "button", tag: "button" })], { url: "https://shop.example/list?p=1" }), next]);
+    expect(await tool("snapshot").run({}, ctx)).toMatchObject({ ok: true, url: "https://shop.example/list?p=1" });
+    expect(await call("click", { controlId: "0:1" }, ctx)).toMatchObject({ ok: true, url: "https://shop.example/list?p=2" });
+  });
+
   it("B3: a stale page fails the result, and the call does not run on the old snapshot", async () => {
     const { tool, call } = fakes([page([control(1, "Email")])], [{ ok: false, reason: "stale" }]);
     await tool("snapshot").run({}, ctx);
