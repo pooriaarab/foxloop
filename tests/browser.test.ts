@@ -595,7 +595,8 @@ describe("B14-B23: fill sets several fields in one call", () => {
   it("B25: fill_and_send fills, reads again, then clicks the pinned button; it needs the submit scope", async () => {
     const typed = sendsTo("https://shop.example/pay");
     typed.controls[0] = { ...typed.controls[0]!, value: "Sam" };
-    const f = fakes([sendsTo("https://shop.example/pay"), typed, typed, typed], [{ ok: true }, { ok: true, submitted: true }]);
+    const paid = page([control(1, "Home", { role: "link", tag: "a" })], { url: "https://shop.example/pay", frames: [{ frameId: 0, url: "https://shop.example/pay", key: "k2" }] });
+    const f = fakes([sendsTo("https://shop.example/pay"), typed, paid], [{ ok: true }, { ok: true, submitted: true }]);
     await f.call("snapshot", {});
     expect(f.tool("fill_and_send").scope).toBe("submit");
     expect(await f.describeVia("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" }))
@@ -605,6 +606,56 @@ describe("B14-B23: fill sets several fields in one call", () => {
     expect(out.summary).toMatch(/Filled: 0:1\..*The form was sent\./);
     expect(f.calls.filter((c) => c.startsWith("act:"))).toEqual(["act:0:1:type:Sam", "act:0:7:click:"]);
     expect(out.data).toEqual({ filled: [{ controlId: "0:1", op: "type", value: "Sam" }], sent: "0:7" });
+  });
+
+  it("B30: a send whose page shows the same form again says that it came back", async () => {
+    // The site refuses the send and shows the form again, now with a new required field, on the same address.
+    const back = form();
+    back.controls.splice(6, 0, control(9, "Order number", { form: 1 }));
+    back.text = "Enter the order number.";
+    const f = fakes([form(), back], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("click", { controlId: "0:7" });
+    expect(out.ok).toBe(true);
+    expect(out.summary).toBe("Done: click on control 0:7. The form was sent, but the page shows the same form again: read it for an error or a field that needs a value.");
+    expect(out.stopBatch).toBe("the form was sent");
+    // A new address with the same form (a server that renders it again) counts too.
+    const moved = form();
+    moved.url = "https://shop.example/cart/add";
+    moved.frames = [{ frameId: 0, url: moved.url, key: "k2" }];
+    const g = fakes([form(), moved], [{ ok: true, submitted: true }]);
+    await g.call("snapshot", {});
+    expect((await g.call("click", { controlId: "0:7" })).summary).toMatch(/the page shows the same form again/);
+  });
+
+  it("B30: a form that came back names each field that lost its value since the send", async () => {
+    // The colour radio was checked before the send; the page came back with it unchecked and a size error.
+    const before = form();
+    before.controls[4] = { ...before.controls[4]!, checked: true };
+    before.controls[0] = { ...before.controls[0]!, value: "Sam" };
+    const back = form();
+    back.controls[0] = { ...back.controls[0]!, value: "Sam" };
+    const f = fakes([before, back], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("click", { controlId: "0:7" });
+    expect(out.summary).toBe('Done: click on control 0:7. The form was sent, but the page shows the same form again: read it for an error or a field that needs a value. These fields lost the value they had before the send: [0:5] checkbox "Terms".');
+  });
+
+  it("B30: a send whose page no longer shows the form, or a click that sent nothing, reads as before", async () => {
+    const thanks = page([control(1, "Home", { role: "link", tag: "a" })], { url: "https://shop.example/sent", title: "Sent", frames: [{ frameId: 0, url: "https://shop.example/sent", key: "k2" }] });
+    const f = fakes([form(), thanks], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    expect((await f.call("click", { controlId: "0:7" })).summary).toBe("Done: click on control 0:7. The form was sent.");
+    // One field of the form is gone: not the same form.
+    const fewer = form();
+    fewer.controls.splice(0, 1);
+    const g = fakes([form(), fewer], [{ ok: true, submitted: true }]);
+    await g.call("snapshot", {});
+    expect((await g.call("click", { controlId: "0:7" })).summary).toBe("Done: click on control 0:7. The form was sent.");
+    // No submit event: the click sent nothing, so there is no form to come back.
+    const h = fakes([form(), form()], [{ ok: true }]);
+    await h.call("snapshot", {});
+    expect((await h.call("click", { controlId: "0:7" })).summary).toBe("Done: click on control 0:7.");
   });
 
   it("B25: many fields that change at once are no page change; the button is still clicked", async () => {
