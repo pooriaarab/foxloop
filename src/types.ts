@@ -34,6 +34,11 @@ export interface ToolOutput {
    * opened a new page". Host text: the model reads it. The loop skips them (M4).
    */
   stopBatch?: string;
+  /**
+   * The address of the page the tab shows after the tool ran, when the tool read it. When it differs from the one
+   * before, the loop forgets the calls before it for L22, since the same control ids on a new page are new calls.
+   */
+  url?: string;
 }
 
 /** What a tool gets besides its arguments. */
