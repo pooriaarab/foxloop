@@ -233,6 +233,8 @@ export function createLoop(options: LoopOptions): Loop {
     let [step, failures, checkFails, repeats, lastKey] = [0, 0, 0, 0, ""];
     /** The keys of the calls that were let run, newest last, for a pair that repeats (L22). */
     const recent: string[] = [];
+    /** The page address of the newest result that named one; a new one clears `recent` (L22). */
+    let page: string | undefined;
     // Gate denials in a row that went back to the model (G12, G13).
     let denied = 0;
     let lastCheck: CheckResult | undefined;
@@ -314,6 +316,11 @@ export function createLoop(options: LoopOptions): Loop {
       if (ran.error !== undefined) return yield* failed(fail("tool-error", "The tool threw an error. Its message is below.", ran.error));
       const output: ToolOutput = ran.value;
       lastCheck = output.check;
+      // L22: the same control ids on a new page are new calls, so a new address forgets the calls before it.
+      if (output.url !== undefined && output.url !== page) {
+        if (page !== undefined) recent.length = 0;
+        page = output.url;
+      }
       if (output.ok && output.stopBatch) endBatch = `after ${name}, ${output.stopBatch.slice(0, LIMITS.error)}`;
       else if (output.ok && [tool.scope, judged.scope].some((s) => s === "submit" || s === "pay")) endBatch = `${name} can send or pay, so it must be the last call`;
       messages.push({ role: "tool", tool_call_id: id, content: resultText(name, output, nonce) });
@@ -362,6 +369,11 @@ export function createLoop(options: LoopOptions): Loop {
       yield { type: "tool-result", step, id, name, ok: output.ok, summary: output.summary.slice(0, LIMITS.summary), ...(output.ok ? {} : { reason: "failed" as const }) };
       if (!output.ok) return undefined;
       lastCheck = output.check;
+      // L22: the same control ids on a new page are new calls, so a new address forgets the calls before it.
+      if (output.url !== undefined && output.url !== page) {
+        if (page !== undefined) recent.length = 0;
+        page = output.url;
+      }
       messages.push({ role: "assistant", content: null, tool_calls: [{ id, type: "function", function: { name, arguments: "{}" } }] });
       messages.push({ role: "tool", tool_call_id: id, content: resultText(name, output, nonce) });
       return undefined;
