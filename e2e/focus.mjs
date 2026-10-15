@@ -33,7 +33,6 @@ try {
   const focused = await ext.evaluate((u) => window.readPage(u, "mystery books"), url);
   const plain = await ext.evaluate((u) => window.readPage(u), url);
   await tab.close();
-  if (process.env.DUMP) console.log(plain.text);
   const target = control.exec(focused.text);
   check("read without focus misses the control past slot 40", !control.test(plain.text), `${plain.text.length} chars`);
   check("read without focus equals the foxpaw default byte for byte", plain.text === plain.plain, `${plain.text.length} chars`);
