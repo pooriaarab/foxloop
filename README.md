@@ -248,7 +248,7 @@ A tool is a plain object:
 | `prepare(args, ctx)` | Optional. Adds host-side arguments after the schema check and before the gate. foxgate judges the result, the human approves it, and `run` gets it. Throw to refuse the call. |
 | `describe(args, ctx)` | Optional. Plain words for the approval, for example `click the button "Pay"`. It gets the prepared arguments. |
 
-### `browserTools({ tabId, browser?, chooser?, paw?, passwords? })`
+### `browserTools({ tabId, browser?, chooser?, paw?, passwords?, focus? })`
 
 The browser tool pack, over [foxpaw](https://github.com/pooriaarab/foxpaw).
 Tab tools take the domain from the tab address at the gate check. When the tab is on another host by the time the tool runs, the tool runs nothing.
@@ -260,6 +260,8 @@ JSON. When the call runs, the tool acts only on that control from that
 snapshot. If the page was read again in the meantime (for example by a
 snapshot while the approval waited), or the control no longer matches, the
 result is `stale` and nothing runs. Calls on one tab run one at a time.
+
+`focus()` gives a text, such as the goal, for each page read. Then `snapshot` and `open_url` show the submit buttons and fields, the 20 controls that share the most words with it, and the 10 text lines that do, instead of the first 40 controls. Default: none.
 
 `passwords(url)` is the one opt-in to type a password with `fill`. Give it only the passwords the user's own goal
 names. `fill` and `fill_and_send` then type a value into a password field when the value is one of them, exactly;
@@ -336,7 +338,7 @@ throw, is a failed result and not a stop. A run asks at most `max` questions
 ## Integration guides
 
 - [Node.js scripted planner example](#run-your-first-agent-loop): run a tool and observe its completion check.
-- [Firefox browser tool pack](#browsertools-tabid-browser-chooser-paw-passwords-): scopes, control pinning, and form previews.
+- [Firefox browser tool pack](#browsertools-tabid-browser-chooser-paw-passwords-focus-): scopes, control pinning, and form previews.
 - [Host approvals](#createloopoptions): callbacks, tokens, logging, and budgets.
 - [User questions](#askusertool-ask-domain-max-): grant and record the `ask_user` tool.
 

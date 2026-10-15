@@ -1,6 +1,6 @@
 {
   "name": "foxloop",
-  "version": "0.1.18",
+  "version": "0.1.19",
   "description": "TypeScript AI agent loop with foxgate approvals, foxpaw Firefox tools, schema validation, foxmind planners, and optional foxtrail logs.",
   "type": "module",
   "license": "MIT",
@@ -33,6 +33,7 @@
     "lint:ext": "web-ext lint -s dist-ext --warnings-as-errors --ignore-files browser-model.js 'ort/*'",
     "check:amo": "node scripts/amo-listing.mjs check",
     "e2e": "pnpm build:ext && node e2e/run.mjs",
+    "e2e:focus": "node e2e/focus.mjs",
     "e2e:ollama": "pnpm build && node e2e/ollama.mjs"
   },
   "devDependencies": {
@@ -49,7 +50,7 @@
   },
   "dependencies": {
     "foxgate": "^0.1.0",
-    "foxpaw": "^0.1.12"
+    "foxpaw": "^0.1.17"
   },
   "keywords": [
     "typescript",
