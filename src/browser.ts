@@ -34,6 +34,12 @@ export interface BrowserToolsOptions {
    * exactly as given, into a password field of that page (B29). Default: none, so they refuse every password field (B15).
    */
   passwords?: (url: string) => readonly string[];
+  /**
+   * A text, such as the goal, read at each page read. foxpaw's `pageText` then keeps the submit buttons and fields,
+   * the 20 controls that share the most words with it, and the 10 text lines that do, so a control past slot 40 can show.
+   * Default: none, so the page shows its first 40 controls.
+   */
+  focus?: () => string | undefined;
 }
 
 const LOAD_WAIT_MS = 15_000;
@@ -208,7 +214,7 @@ function fillRequest(c: Snapshot["controls"][number], value: unknown, passwords:
 export function browserTools(options: BrowserToolsOptions): LoopTool[] {
   const paw: PawLike = options.paw ?? foxpaw;
   /** The page as text for the model. All of it comes from the page, so it is untrusted (P8). */
-  const pageText = (page: Snapshot) => paw.pageText(masked(page));
+  const pageText = (page: Snapshot) => paw.pageText(masked(page), { focus: options.focus?.() });
   const api = () => options.browser ?? (globalThis as unknown as { browser: ScriptingApi & { tabs: TabsLike } }).browser;
   /** The newest snapshot. `generation` grows with each read, so an old approval can tell. */
   let last: { tabId: number; page: Snapshot; generation: number } | undefined;
