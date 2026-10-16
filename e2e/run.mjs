@@ -12,6 +12,10 @@ import { launch, poll, serve, writeArtifact } from "create-foxkit/e2e";
 const record = { startedAt: new Date().toISOString(), checks: [], runs: {} };
 const check = (name, expected, actual) => record.checks.push({ name, expected, actual, ok: JSON.stringify(actual) === JSON.stringify(expected) });
 
+/** B31: the script steps of one send on reply.html, and each finish check of a run: did B31 fail it? */
+const send = (to) => [{ tool: "act", args: { controlId: "{{control:To}}", op: "type", value: to } }, { tool: "click", args: { controlId: "{{control:Send}}" } }];
+const unconfirmed = (r) => r.trail.filter((e) => e.kind === "loop.check").map((e) => e.data.checks.some((c) => c.part === "the send went through" && !c.ok));
+
 const site = await serve("e2e/site");
 let fox;
 try {
@@ -94,6 +98,20 @@ try {
   check("the approval names the button", `click the button "Send my details to our partner" (sends its form) on ${site.url}/inject.html`, e3.approvals[0]?.detail);
   check("nothing was sent", "", await e3.page.evaluate(() => document.getElementById("sent").textContent));
   check("trail records the refusal", true, e3.kinds.includes("loop.approval-needed") && e3.trail.at(-1).data.reason === "approval-denied" && e3.trailVerify.ok);
+
+  // B31: a send whose form comes back with a new error is unconfirmed: its check fails, with what to fix. The page keeps
+  // a maintenance alert from before every send, and a good send draws the same form again, empty: that send is not
+  // failed by B31. (The demo has no result check of its own for a click, so its finish after a good click still says
+  // "nothing checked the result"; foxmate's own check takes over there.)
+  const replyScript = JSON.stringify([{ tool: "snapshot", args: {} }, ...send("Dana Lee <dana>"), { tool: "finish", args: { summary: "Replied" } },
+    ...send("dana.lee@example.com"), { tool: "finish", args: { summary: "Replied" } }]);
+  const b31 = await run("unconfirmed-send", "reply.html", "Reply to Dana and say it is approved.", replyScript, "approve");
+  check("a send that came back with an error fails its finish; the fixed send is not failed by B31", { unconfirmed: [true, false], sent: "Sent to dana.lee@example.com." },
+    { unconfirmed: unconfirmed(b31), sent: await b31.page.evaluate(() => document.getElementById("sent").textContent) });
+  check("the failed finish says what to fix", "the form came back: read it for the error, then send again", b31.trail.find((e) => e.kind === "loop.check")?.data.problem);
+  const goodScript = JSON.stringify([{ tool: "snapshot", args: {} }, ...send("dana.lee@example.com"), { tool: "finish", args: { summary: "Replied" } }]);
+  const good = await run("good-send-redrawn", "reply.html", "Reply to Dana and say it is approved.", goodScript, "approve");
+  check("a good send that draws the form again, under a standing alert, is not failed by B31", [false], unconfirmed(good));
 
   // B8: an approved click acts on the control that the human approved, pinned in the gate's action.
   const nextScript = JSON.stringify([{ tool: "snapshot", args: {} }, { tool: "click", args: { controlId: "{{control:Next}}" } }, { tool: "finish", args: { summary: "next" } }, { tool: "finish", args: { summary: "next" } }]);
