@@ -1,0 +1,40 @@
+<!doctype html>
+<!--
+  B31 (foxloop #164): a send comes back with an error, the result is still a success, and the planner calls finish:
+  foxmate reported a false "Replied" (mail-reply, a bad To address). A send whose form came back (B30) and whose page
+  shows an error signal that was not there before the send (foxpaw snapshot.errors) is unconfirmed: the result says the
+  form came back with an error, and its check fails with "the form came back: read it for the error, then send again".
+  A form that came back with no new error signal (a good send that draws the form again), an alert that was on the page
+  before the send (the banner below), and a send whose form is gone read as before, with no check.
+-->
+<html lang="en">
+  <head><meta charset="utf-8" /><title>Reply</title></head>
+  <body>
+    <!-- B31: a banner that is on the page before every send: it is not an error of the send. -->
+    <p role="alert">Scheduled maintenance tonight from 22:00.</p>
+    <h1>Reply to Dana</h1>
+    <!-- A send with a bad To comes back with an alert; a good send draws the same form again, empty, as some sites do. -->
+    <form id="reply" onsubmit="event.preventDefault(); send();">
+      <label for="to">To</label><input id="to" name="to">
+      <label for="body">Message</label><textarea id="body" name="body">Approved.</textarea>
+      <button type="submit">Send</button>
+    </form>
+    <p id="error"></p>
+    <p id="sent"></p>
+    <script>
+      function send() {
+        const to = document.getElementById("to").value.trim();
+        const error = document.getElementById("error");
+        if (!/^[^\s<>@]+@[^\s<>@]+$/.test(to)) {
+          error.setAttribute("role", "alert");
+          error.textContent = "Enter one email address.";
+          return;
+        }
+        error.removeAttribute("role");
+        error.textContent = "";
+        document.getElementById("sent").textContent = `Sent to ${to}.`;
+        document.getElementById("reply").reset();
+      }
+    </script>
+  </body>
+</html>
