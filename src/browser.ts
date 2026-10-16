@@ -2,7 +2,7 @@
 // tools. Every page function is bundled in foxpaw; no tool runs model code.
 import * as foxpaw from "foxpaw";
 import type { ActRequest, Chooser, FormPlan, RunOptions, RunResult, ScriptingApi, Snapshot } from "foxpaw";
-import type { LoopTool, ToolContext, ToolOutput } from "./types.js";
+import type { CheckResult, LoopTool, ToolContext, ToolOutput } from "./types.js";
 
 /** The `browser.tabs` calls the pack uses. */
 export interface TabsLike {
@@ -306,13 +306,19 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
     const back = result.submitted ? cameBack(page, after, control) : undefined;
     // A reset field is named by id, role and label only: its value may be a secret (A4, B12).
     const reset = back?.length ? ` These fields lost the value they had before the send: ${back.map((c) => `[${c.id}] ${c.role} "${c.label}"`).join(", ")}.` : "";
-    const sent = !result.submitted ? "" : back
-      ? ` The form was sent, but the page shows the same form again: read it for an error or a field that needs a value.${reset}`
-      : " The form was sent.";
+    // An error signal that the page did not show before the send: a form that came back with one was not taken (B31).
+    const fresh = back && after ? after.errors.filter((e) => !page.errors.includes(e)) : [];
+    const sent = !result.submitted ? "" : fresh.length
+      ? ` The form was sent, but it came back with an error on the page: read it, fix the field, then send again.${reset}`
+      : back
+        ? ` The form was sent, but the page shows the same form again: read it for an error or a field that needs a value.${reset}`
+        : " The form was sent.";
+    const check: CheckResult | undefined = fresh.length ? { ok: false, problem: "the form came back: read it for the error, then send again",
+      checks: [{ part: "the send went through", ok: false, evidence: `the form came back with an error: ${fresh.join("; ")}` }] } : undefined;
     // A diff on the same document; the full page after a navigation, a reload or a big change (B9-B11).
     const change = after ? paw.changeText(masked(page), masked(after), { target: control.id }) : undefined;
     const stopBatch = result.submitted ? "the form was sent" : changed(page, after) ?? (change?.full ? "the page changed" : undefined);
-    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: change?.text, ...(stopBatch ? { stopBatch } : {}) };
+    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: change?.text, ...(stopBatch ? { stopBatch } : {}), ...(check ? { check } : {}) };
   };
 
   /** Sets each pinned field on the snapshot the gate judged, then reads the page once (B17-B20, B22, B23). */

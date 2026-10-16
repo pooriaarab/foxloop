@@ -16,7 +16,7 @@ const control = (node: number, label: string, over: Partial<Control> = {}): Cont
 
 const page = (controls: Control[], over: Partial<Snapshot> = {}): Snapshot => ({
   url: "https://shop.example/signup", title: "Sign up", text: "Create your account.", headings: ["Sign up"],
-  controls, frames: [{ frameId: 0, url: "https://shop.example/signup", key: "k" }], captcha: false, more: false, ...over,
+  controls, frames: [{ frameId: 0, url: "https://shop.example/signup", key: "k" }], captcha: false, more: false, errors: [], ...over,
 });
 
 function fakes(snaps: (Snapshot | Error)[], acts: ActResult[] = [], run?: Partial<RunResult>, actDelayMs = 0, more: Pick<BrowserToolsOptions, "passwords"> = {}) {
@@ -639,6 +639,48 @@ describe("B14-B23: fill sets several fields in one call", () => {
     await f.call("snapshot", {});
     const out = await f.call("click", { controlId: "0:7" });
     expect(out.summary).toBe('Done: click on control 0:7. The form was sent, but the page shows the same form again: read it for an error or a field that needs a value. These fields lost the value they had before the send: [0:5] checkbox "Terms".');
+  });
+
+  it("B31: a form that came back with a new error signal is an unconfirmed send, and its check fails", async () => {
+    const back = form();
+    back.errors = ["Enter one email address."];
+    const f = fakes([form(), back], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const out = await f.call("click", { controlId: "0:7" });
+    expect(out.ok).toBe(true);
+    expect(out.summary).toBe("Done: click on control 0:7. The form was sent, but it came back with an error on the page: read it, fix the field, then send again.");
+    expect(out.check).toEqual({ ok: false, problem: "the form came back: read it for the error, then send again",
+      checks: [{ part: "the send went through", ok: false, evidence: "the form came back with an error: Enter one email address." }] });
+    // fill_and_send carries the same check: its last step is the click.
+    const typed = form();
+    typed.controls[0] = { ...typed.controls[0]!, value: "Sam" };
+    const typedBack = { ...typed, errors: ["Enter one email address."] };
+    const g = fakes([form(), typed, typedBack], [{ ok: true }, { ok: true, submitted: true }]);
+    await g.call("snapshot", {});
+    const sent = await g.call("fill_and_send", { fields: { "0:1": "Sam" }, send: "0:7" });
+    expect(sent.check?.ok).toBe(false);
+    expect(sent.summary).toMatch(/it came back with an error on the page/);
+  });
+
+  it("B31: a redrawn form with no new error, or with an alert from before the send, is a good send with no check", async () => {
+    // A settings save that draws the same form again with the saved values.
+    const f = fakes([form(), form()], [{ ok: true, submitted: true }]);
+    await f.call("snapshot", {});
+    const saved = await f.call("click", { controlId: "0:7" });
+    expect(saved.summary).toMatch(/the page shows the same form again/);
+    expect(saved.check).toBeUndefined();
+    // A banner that was on the page before the send is not new.
+    const banner = () => ({ ...form(), errors: ["Scheduled maintenance tonight."] });
+    const g = fakes([banner(), banner()], [{ ok: true, submitted: true }]);
+    await g.call("snapshot", {});
+    expect((await g.call("click", { controlId: "0:7" })).check).toBeUndefined();
+    // An error on a page whose form is gone is not a form that came back.
+    const thanks = page([control(1, "Home", { role: "link", tag: "a" })], { url: "https://shop.example/sent", frames: [{ frameId: 0, url: "https://shop.example/sent", key: "k2" }], errors: ["Cookies are off."] });
+    const h = fakes([form(), thanks], [{ ok: true, submitted: true }]);
+    await h.call("snapshot", {});
+    const gone = await h.call("click", { controlId: "0:7" });
+    expect(gone.summary).toBe("Done: click on control 0:7. The form was sent.");
+    expect(gone.check).toBeUndefined();
   });
 
   it("B30: a send whose page no longer shows the form, or a click that sent nothing, reads as before", async () => {
