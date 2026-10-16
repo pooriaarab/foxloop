@@ -314,11 +314,13 @@ export function browserTools(options: BrowserToolsOptions): LoopTool[] {
         ? ` The form was sent, but the page shows the same form again: read it for an error or a field that needs a value.${reset}`
         : " The form was sent.";
     const check: CheckResult | undefined = fresh.length ? { ok: false, problem: "the form came back: read it for the error, then send again",
-      checks: [{ part: "the send went through", ok: false, evidence: `the form came back with an error: ${fresh.join("; ")}` }] } : undefined;
+      // Page text is the site's, and any page can put text in an alert: it goes to the model only as untrusted data.
+      checks: [{ part: "the send went through", ok: false, evidence: `the form came back with ${fresh.length} new error signal${fresh.length > 1 ? "s" : ""} on the page` }] } : undefined;
     // A diff on the same document; the full page after a navigation, a reload or a big change (B9-B11).
     const change = after ? paw.changeText(masked(page), masked(after), { target: control.id }) : undefined;
+    const untrusted = [change?.text, fresh.length ? `New error signals on the page:\n${fresh.join("\n")}` : ""].filter(Boolean).join("\n") || undefined;
     const stopBatch = result.submitted ? "the form was sent" : changed(page, after) ?? (change?.full ? "the page changed" : undefined);
-    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted: change?.text, ...(stopBatch ? { stopBatch } : {}), ...(check ? { check } : {}) };
+    return { ok: true, summary: `Done: ${request.op} on control ${control.id}.${sent}`, untrusted, ...(stopBatch ? { stopBatch } : {}), ...(check ? { check } : {}) };
   };
 
   /** Sets each pinned field on the snapshot the gate judged, then reads the page once (B17-B20, B22, B23). */
