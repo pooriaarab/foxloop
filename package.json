@@ -50,7 +50,7 @@
   },
   "dependencies": {
     "foxgate": "^0.1.0",
-    "foxpaw": "^0.1.17"
+    "foxpaw": "^0.1.18"
   },
   "keywords": [
     "typescript",
